@@ -1,0 +1,6 @@
+{
+  "name": "Synology NAS Monitoring Card",
+  "content_in_root": false,
+  "filename": "synology-nas-card.js",
+  "render_readme": true
+}
