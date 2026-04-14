@@ -10,20 +10,28 @@ A Home Assistant Lovelace custom card for Synology NAS devices — built on top 
 
 ## Features
 
-- **Auto-discovery** — finds all Synology NAS devices in your HA instance, auto-detects drive bays, M.2 NVMe slots, and volumes
+- **Auto-discovery** — finds all Synology NAS devices in your HA instance, auto-detects drive bays, M.2 NVMe slots, volumes, and CPU core count from the NAS model
 - **Multi-NAS support** — dropdown picker in the editor when you have multiple NAS appliances
-- **System gauges** — CPU, RAM, and temperature with color-coded thresholds and correct arc rendering
+- **System gauges** — CPU load (15-min load average), RAM usage, and temperature with configurable color-coded thresholds
+- **Load average row** — 1-min / 5-min / 15-min load averages under the gauges with `/ cores` context
+- **Sparklines** — 24-hour history mini-charts under the CPU / RAM / temperature gauges
+- **Trend arrow** — ↑ / ↓ / → next to temperature based on recent history
+- **Clickable history** — click any gauge, drive, volume, memory item or header badge to open the HA more-info dialog with the history graph
 - **Drive bay overview** — status, SMART, temperature, bad sector & remaining life warnings; hot spare drives shown distinctly
+- **Inline details** — each drive bay and volume can be expanded in-card to show the raw entity attributes (SMART details, RAID layout, etc.)
 - **Volume storage bars** — usage percentage, free space, avg/max disk temperatures, RAID type badge
-- **Network throughput** — download/upload speed display
-- **Memory details** — total, available, cached
-- **Security Advisor** — clickable items that expand to show the actual status value
-- **Issue details** — "Issue Detected" badge is clickable, expands to list all detected problems
+- **Memory details** — total, available, cached and optional swap total/used (rounded to whole MB)
+- **Security Advisor** — clickable items that expand to show the actual status value (state persists across refreshes)
+- **Issue panel** — "Issue Detected" badge is clickable, expands to a severity-colored list (critical / warning / info) of all detected problems
 - **Notify HA** — one-click button inside the issues panel sends a persistent HA notification with the full issue list
 - **DSM web link** — configurable button to open the Synology DSM web interface
-- **Power controls** — optional reboot button, locked by default (requires unlock + double confirmation)
+- **Power controls** — optional reboot and shutdown buttons, locked by default (requires unlock + double confirmation)
+- **DSM update install** — when an update is available, the update badge is clickable and (after confirmation) triggers `update.install` on the DSM update entity
 - **Uptime display** — shows last boot date/time with timezone and computed uptime (e.g. "3w 2d 14h 22m")
 - **DSM update banner** — shown when a new DSM version is available
+- **Configurable thresholds** — CPU load, RAM, temperature and drive temperature thresholds exposed in the editor
+- **Compact mode** — tighter layout for dense dashboards
+- **Hide empty bays** — optionally hide unused drive / M.2 slots from the grid
 - **Built-in visual editor** — full card configuration without writing YAML
 - **Localization** — UI automatically switches between English and Czech based on your browser language
 - **Fully theme-aware** — respects your HA light/dark theme colors
@@ -95,10 +103,20 @@ dsm_url: https://192.168.1.100:5001
 | `entity_prefix` | string | **required** | Common prefix of your Synology entities (auto-discovered in editor) |
 | `name` | string | *auto* | Display name shown in the card header (auto-derived from prefix if empty) |
 | `dsm_url` | string | — | URL to the Synology DSM web interface (shows "Open DSM" link) |
+| `cpu_cores` | number | `4` | Number of CPU cores — used as the max value for the load-average gauge. Auto-detected from the NAS model when the card is added. |
 | `show_security` | boolean | `true` | Show Security Advisor section |
-| `show_power` | boolean | `false` | Show reboot button (locked by default, requires double confirmation) |
-| `show_network` | boolean | `true` | Show network throughput |
 | `show_memory` | boolean | `true` | Show memory details |
+| `show_power` | boolean | `false` | Show reboot button (locked by default, requires double confirmation) |
+| `show_shutdown` | boolean | `false` | Also show the shutdown button (requires `show_power: true`) |
+| `compact_mode` | boolean | `false` | Denser layout — tighter padding, smaller gauges and fonts |
+| `hide_empty_bays` | boolean | `false` | Hide drive / M.2 slots that report no disk installed |
+| `thresholds.cpu_yellow` | number | — | CPU warn threshold as load-per-core (e.g. `0.70`). Leave empty for auto. |
+| `thresholds.cpu_red` | number | — | CPU critical threshold as load-per-core (e.g. `1.00`). Leave empty for auto. |
+| `thresholds.ram_yellow` | number | `70` | RAM warn threshold (%) |
+| `thresholds.ram_red` | number | `90` | RAM critical threshold (%) |
+| `thresholds.temp_yellow` | number | `55` | System temperature warn threshold (°C) |
+| `thresholds.temp_red` | number | `70` | System temperature critical threshold (°C) |
+| `thresholds.drive_temp_warn` | number | `50` | Per-drive temperature warn threshold (°C) |
 
 ### Finding Your Entity Prefix
 
@@ -144,6 +162,26 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 ---
 
 ## Changelog
+
+### v0.4.0
+- **CPU gauge reworked** — now shows `cpu_load_average_15_min` instead of the instantaneous `cpu_utilization_total` (which was effectively random with the 15-minute Synology DSM polling interval)
+- **Load average row** — compact 1m / 5m / 15m values shown under the gauges, with `/ cores` context
+- **CPU cores config** — new `cpu_cores` option (default 4), auto-detected from the NAS model when the card is added or the NAS is switched in the editor (DS1821+ → 4, DS3622xs+ → 12, FS6400 → 16, …)
+- **Clickable history** — gauges, drive bays, volumes, memory items, DSM update badge, last boot and the Security Advisor title now open the Home Assistant more-info dialog with the history graph
+- **Security toggle persists** — clicking a Security Advisor item now keeps the detail open across re-renders (was resetting on every state update)
+- **Network section removed** — the download/upload throughput values are stale at the 15-minute polling interval and were misleading
+- **Decimal-place cleanup** — MB/s and GB/s shown as integers, TB values always to 2 decimal places, memory values rounded to whole MB
+- **Sparklines** — 24h history mini-chart under CPU / RAM / temperature gauges, fetched via the HA history websocket API
+- **Temperature trend arrow** — ↑ / ↓ / → next to the temperature value based on the last 15 minutes of history
+- **Drive / volume inline expand** — new ▼ button on each drive bay and volume card reveals the raw entity attributes (SMART details, RAID layout, etc.) inline, without leaving the card
+- **Issue severity** — detected issues are now classified as `critical` / `warning` / `info` and colour-coded in the issues panel; the status badge reflects the worst severity
+- **CPU overload as issue** — sustained 15-min load average above the configured CPU threshold (default 1.0 per core) is reported as an issue
+- **Memory swap** — swap total / used are shown in the memory section when the entities are available
+- **DSM update as info issue + install action** — when an update is available, the update badge is clickable and (after confirmation) triggers the DSM `update.install` service
+- **Shutdown button** — optional shutdown button next to Reboot, hidden by default, locked behind the same double-confirmation as Reboot (`show_shutdown`)
+- **Compact mode** — `compact_mode` option tightens padding, shrinks gauges and reduces font sizes for dense dashboards
+- **Hide empty bays** — `hide_empty_bays` option removes unused drive / M.2 slots from the grid
+- **Configurable thresholds** — CPU load, RAM, temperature and drive temperature thresholds are now configurable via the new *Advanced thresholds* section in the editor
 
 ### v0.3.0
 - **Localization (i18n)** — UI language auto-detected from browser; English and Czech supported
