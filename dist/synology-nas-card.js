@@ -404,7 +404,8 @@ class SynologyNasCard extends HTMLElement {
       show_power: false,
       show_shutdown: false,
       show_memory: true,
-      show_front_panel: true,
+      show_drive_panel: true,
+      show_drive_grid: false,
       compact_mode: false,
       hide_empty_bays: false,
       dsm_url: "",
@@ -466,11 +467,15 @@ class SynologyNasCard extends HTMLElement {
     if (!force && Date.now() - this._historyLastFetch < 5 * 60 * 1000) return;
     this._historyFetching = true;
     const p = this._config.entity_prefix;
+    const drvSlots = detectDriveSlots(this._hass, p);
+    const m2sl     = detectM2Slots(this._hass, p);
     const entities = [
       this._e("cpu_load_average_15_min"),
       this._e("memory_usage_real"),
       this._e("temperature"),
-    ];
+      ...drvSlots.map((i) => this._e(`drive_${i}_temperature`)),
+      ...m2sl.map((i) => this._e(`m_2_drive_${i}_temperature`)),
+    ].filter(Boolean);
     try {
       const start = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
       const res = await this._hass.callWS({
@@ -539,6 +544,23 @@ class SynologyNasCard extends HTMLElement {
     return `<span class="trend trend-down">\u2193</span>`;
   }
 
+  /* ── inline SVG sparkline path — returns raw SVG elements for embedding in larger SVG ── */
+  _sparklineSVGPath(entityId, x, y, w, h, color) {
+    const pts = this._history?.[entityId];
+    if (!pts || pts.length < 2) return "";
+    const vs = pts.map((p) => p.v);
+    let min = Math.min(...vs), max = Math.max(...vs);
+    if (max - min < 0.5) max = min + 1;
+    const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
+    const span = Math.max(1, t1 - t0);
+    const d = pts.map((p, i) => {
+      const px = x + ((p.t - t0) / span) * w;
+      const py = y + h - ((p.v - min) / (max - min)) * h;
+      return `${i === 0 ? "M" : "L"} ${px.toFixed(1)} ${py.toFixed(1)}`;
+    }).join(" ");
+    return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity="0.7"/>`;
+  }
+
   setConfig(cfg) {
     if (!cfg.entity_prefix) throw new Error("Please define entity_prefix");
     this._config = {
@@ -548,7 +570,8 @@ class SynologyNasCard extends HTMLElement {
       show_power: cfg.show_power === true,
       show_shutdown: cfg.show_shutdown === true,
       show_memory: cfg.show_memory !== false,
-      show_front_panel: cfg.show_front_panel !== false,
+      show_drive_panel: cfg.show_drive_panel !== false,   // SVG front-panel view, default true
+      show_drive_grid:  cfg.show_drive_grid  === true,    // text grid view, default false
       compact_mode: cfg.compact_mode === true,
       hide_empty_bays: cfg.hide_empty_bays === true,
       dsm_url: cfg.dsm_url || "",
@@ -776,122 +799,142 @@ class SynologyNasCard extends HTMLElement {
   /* ── front panel SVG ── */
   _frontPanel(panelDef, hddSlots, m2Slots) {
     const { vw, vh, drives, extras = [] } = panelDef;
+    const thr = this._config.thresholds || {};
+    const driveTempWarn = thr.drive_temp_warn ?? 45;
+    const driveTempHot  = driveTempWarn + 12;
 
-    // Status colour per drive slot (both HDD and M.2)
-    const slotColor = (type, slot) => {
-      const pfx  = type === "m2" ? "m_2_drive" : "drive";
-      const sid  = this._e(`${pfx}_${slot}_status`);
-      const stat = (this._s(sid) || "").toLowerCase();
-      if (!stat || stat === "unavailable" || stat === "unknown") return null; // empty/unknown → no tray
-      if (["not_used","not_use","hotspare","hot_spare","nondisk"].includes(stat))
-        return { tray:"#1e1a0a", led:"#ff9800" };
-      if (["normal","initialized"].includes(stat))
-        return { tray:"#0a1a0a", led:"#4caf50" };
-      return { tray:"#1a0a0a", led:"#f44336" };
+    /* colour helpers */
+    const slotInfo = (type, slot) => {
+      const pfx    = type === "m2" ? "m_2_drive" : "drive";
+      const sid    = this._e(`${pfx}_${slot}_status`);
+      const smid   = this._e(`${pfx}_${slot}_status_smart`);
+      const tid    = this._e(`${pfx}_${slot}_temperature`);
+      const stat   = (this._s(sid) || "").toLowerCase();
+      const smart  = (this._s(smid) || "").toLowerCase();
+      const temp   = this._n(tid);
+
+      const isEmpty    = !stat || stat === "unavailable" || stat === "unknown";
+      const isHotSpare = ["not_used","not_use","hotspare","hot_spare","nondisk"].includes(stat);
+      const isNormal   = ["normal","initialized"].includes(stat);
+      const isError    = !isEmpty && !isHotSpare && !isNormal;
+
+      // Tray fill = operational status
+      let trayFill;
+      if      (isEmpty)     trayFill = "#0d0d0d";
+      else if (isHotSpare)  trayFill = "#04040f"; // dark blue tint
+      else if (isNormal)    trayFill = "#04100a"; // dark green tint
+      else                  trayFill = "#120404"; // dark red tint
+
+      // Border stroke = temperature status
+      let borderStroke;
+      if      (isEmpty || temp === null)    borderStroke = "#222";
+      else if (temp >= driveTempHot)        borderStroke = "#f44336";
+      else if (temp >= driveTempWarn)       borderStroke = "#ff6b00";
+      else                                  borderStroke = "#2a5c2a"; // cool green outline for normal
+
+      // LED = SMART status
+      let ledColor;
+      if      (isEmpty)              ledColor = null;
+      else if (isHotSpare)           ledColor = "#2196f3";  // blue — not a warning
+      else if (smart === "normal")   ledColor = "#4caf50";  // green
+      else if (smart && smart !== "unavailable" && smart !== "unknown") ledColor = "#f44336"; // red
+      else                           ledColor = "#4caf50";  // default green when no SMART data
+
+      return { isEmpty, isHotSpare, isNormal, isError, trayFill, borderStroke, ledColor, temp,
+               eid: sid, tid };
     };
 
-    const slotTemp = (type, slot) => {
-      const pfx = type === "m2" ? "m_2_drive" : "drive";
-      return this._n(this._e(`${pfx}_${slot}_temperature`));
-    };
+    /* render one drive slot */
+    const renderSlot = (x, y, w, h, type, slot) => {
+      const info = slotInfo(type, slot);
+      const sparkColor = info.temp !== null && info.temp >= driveTempWarn ? "#ff6b00" : "#03a9f4";
+      const spark = info.isEmpty ? "" : this._sparklineSVGPath(
+        info.tid, x + 2, y + h - 16, w - 4, 10, sparkColor
+      );
 
-    const slotEntityId = (type, slot) => {
-      const pfx = type === "m2" ? "m_2_drive" : "drive";
-      return this._e(`${pfx}_${slot}_status`);
-    };
+      const tray = `<rect x="${x+1.5}" y="${y+1.5}" width="${w-3}" height="${h-3}" rx="2.5" fill="${info.trayFill}"/>`;
 
-    // ── Render drive slots ──
-    const driveSvg = drives.map(({ x, y, w, h, type, slot }) => {
-      const colors = slotColor(type, slot);
-      const temp   = slotTemp(type, slot);
-      const eid    = slotEntityId(type, slot);
-      const isEmpty = !colors;
+      const led  = info.ledColor
+        ? `<circle cx="${x + w/2}" cy="${y + 9}" r="3" fill="${info.ledColor}"/>
+           <circle cx="${x + w/2}" cy="${y + 9}" r="5" fill="none" stroke="${info.ledColor}" stroke-width="0.4" opacity="0.4"/>`
+        : `<circle cx="${x + w/2}" cy="${y + 9}" r="3" fill="#1a1a1a"/>`;
 
-      // Temperature bar: bottom 4px, colour from cold→hot (blue→orange)
-      let tempBar = "";
-      if (temp !== null && !isEmpty) {
-        const pct  = Math.min(100, Math.max(0, (temp - 20) / 50 * 100)); // 20→70°C range
-        const bclr = temp >= 55 ? "#f44336" : temp >= 40 ? "#ff9800" : "#2196f3";
-        const bw   = (w - 4) * pct / 100;
-        tempBar = bw > 0
-          ? `<rect x="${x + 2}" y="${y + h - 6}" width="${bw.toFixed(1)}" height="4" rx="1" fill="${bclr}" opacity="0.8"/>`
-          : "";
-      }
+      // Slot label — top-left, readable contrast
+      const isM2 = type === "m2";
+      const lblText = isM2 ? `M${slot}` : `${slot}`;
+      const lbl  = `<text x="${x+4}" y="${y+8}" font-size="6" fill="#aaa" font-family="sans-serif" font-weight="600">${lblText}</text>`;
 
-      // Drive tray (only when occupied)
-      const tray = isEmpty
-        ? `<rect x="${x+2}" y="${y+2}" width="${w-4}" height="${h-4}" rx="2" fill="#0d0d0d" opacity="0.4"/>`
-        : `<rect x="${x+2}" y="${y+2}" width="${w-4}" height="${h-4}" rx="2" fill="${colors.tray}"/>`;
-
-      // LED indicator
-      const led = isEmpty
-        ? `<circle cx="${x + w/2}" cy="${y+9}" r="2" fill="#1a1a1a"/>`
-        : `<circle cx="${x + w/2}" cy="${y+9}" r="2.5" fill="${colors.led}"/>`;
-
-      // Slot label
-      const lbl = `<text x="${x+w/2}" y="${y+h-10}" text-anchor="middle" font-size="6.5" fill="${isEmpty ? "#2a2a2a" : "#555"}" font-family="sans-serif">${slot}</text>`;
-
-      // Temperature text
-      const tmpTxt = (temp !== null && !isEmpty)
-        ? `<text x="${x+w/2}" y="${y+h-3}" text-anchor="middle" font-size="5.5" fill="#666" font-family="sans-serif">${temp}°</text>`
+      // Temperature — bottom centre, only when occupied
+      const tmpTxt = (!info.isEmpty && info.temp !== null)
+        ? `<text x="${x+w/2}" y="${y+h-3}" text-anchor="middle" font-size="6" fill="#888" font-family="sans-serif">${info.temp}°</text>`
         : "";
 
-      // M.2 badge
-      const m2badge = type === "m2"
-        ? `<text x="${x+w/2}" y="${y+h-18}" text-anchor="middle" font-size="5" fill="#555" font-family="sans-serif">M.2</text>`
-        : "";
+      // Handle bar (visible on non-empty trays)
+      const handle = info.isEmpty ? "" :
+        `<rect x="${x+4}" y="${y+h-20}" width="${w-8}" height="2" rx="1" fill="#333"/>`;
 
-      // Handle bar at bottom of tray
-      const handle = isEmpty ? "" : `<rect x="${x+4}" y="${y+h-13}" width="${w-8}" height="2.5" rx="1.2" fill="#333"/>`;
-
-      // Clickable overlay
-      const clickAttr = eid ? ` data-entity="${eid}" style="cursor:pointer"` : "";
+      const clickAttr = info.eid ? ` data-entity="${info.eid}" style="cursor:pointer"` : "";
 
       return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}"${clickAttr}>
-        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="3" fill="#111" stroke="#252525" stroke-width="0.8"/>
-        ${tray}${led}${handle}${lbl}${tempBar}${tmpTxt}${m2badge}
+        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
+          fill="#111" stroke="${info.borderStroke}" stroke-width="1.5"/>
+        ${tray}${led}${handle}${lbl}${spark}${tmpTxt}
       </g>`;
-    }).join("");
+    };
 
-    // ── Render extras (power button, USB, status LEDs) ──
-    const extraSvg = extras.map(({ type, x, y, r, w: ew, h: eh, text }) => {
+    /* ── HDD bay SVG ── */
+    const driveSvg = drives.map(({ x, y, w, h, type, slot }) =>
+      renderSlot(x, y, w, h, type, slot)
+    ).join("");
+
+    /* ── M.2 slots — appended as a row below, dynamic ── */
+    let m2Svg = "";
+    let m2Height = 0;
+    if (m2Slots && m2Slots.length > 0) {
+      const mw = Math.min(70, (vw - 8) / m2Slots.length - 4);
+      const mh = 30;
+      const totalM2W = m2Slots.length * (mw + 4) - 4;
+      const mStartX = (vw - totalM2W) / 2;
+      const mStartY = vh + 6;
+      m2Height = mh + 10;
+      m2Svg = m2Slots.map((slot, idx) =>
+        renderSlot(mStartX + idx * (mw + 4), mStartY, mw, mh, "m2", slot)
+      ).join("");
+      // Label for M.2 section
+      m2Svg += `<text x="${vw/2}" y="${mStartY - 2}" text-anchor="middle" font-size="5.5" fill="#444" font-family="sans-serif" text-transform="uppercase">M.2 NVMe</text>`;
+    }
+
+    const totalH = vh + (m2Height > 0 ? m2Height + 2 : 0);
+
+    /* ── Extras (power button, USB, status LEDs) ── */
+    const extraSvg = extras.map(({ type, x, y, r, w: ew, h: eh }) => {
       if (type === "power")
-        return `<circle cx="${x}" cy="${y}" r="${r||6}" fill="#1a1a1a" stroke="#333" stroke-width="1"/>
-                <circle cx="${x}" cy="${y}" r="${(r||6)-2}" fill="#222"/>
-                <text x="${x}" y="${y+3}" text-anchor="middle" font-size="6" fill="#444" font-family="sans-serif">⏻</text>`;
+        return `<circle cx="${x}" cy="${y}" r="${r||6}" fill="#181818" stroke="#333" stroke-width="1"/>
+                <text x="${x}" y="${y+2.5}" text-anchor="middle" dominant-baseline="middle" font-size="7" fill="#444" font-family="sans-serif">⏻</text>`;
       if (type === "usb")
-        return `<rect x="${x}" y="${y}" width="${ew||12}" height="${eh||8}" rx="2" fill="#0a0a0a" stroke="#333" stroke-width="0.8"/>
-                <rect x="${x+2}" y="${y+2}" width="${(ew||12)-4}" height="${(eh||8)-4}" rx="1" fill="#111"/>`;
-      if (type === "led") {
-        // Main status LED — colour from overall card status
-        const ledCol = "#4caf50"; // TODO: could reflect overall NAS status
-        return `<circle cx="${x}" cy="${y}" r="${r||3}" fill="${ledCol}" opacity="0.85"/>
-                <circle cx="${x}" cy="${y}" r="${(r||3)+1}" fill="none" stroke="${ledCol}" stroke-width="0.5" opacity="0.3"/>`;
-      }
-      if (type === "label")
-        return `<text x="${x}" y="${y}" text-anchor="middle" font-size="6" fill="#555" font-family="sans-serif">${text||""}</text>`;
+        return `<rect x="${x}" y="${y}" width="${ew||12}" height="${eh||7}" rx="2" fill="#0a0a0a" stroke="#2a2a2a" stroke-width="0.8"/>
+                <rect x="${x+2}" y="${y+2}" width="${(ew||12)-4}" height="${(eh||7)-4}" rx="1" fill="#111"/>`;
+      if (type === "led")
+        return `<circle cx="${x}" cy="${y}" r="${r||3}" fill="#4caf50" opacity="0.8"/>`;
       return "";
     }).join("");
 
-    // ── Model label ──
-    const modelLabel = `<text x="${vw-4}" y="${vh-4}" text-anchor="end" font-size="6.5" fill="#333" font-family="sans-serif" font-weight="600">${panelDef.label}</text>`;
+    /* ── Model label ── */
+    const modelLabel = `<text x="${vw-3}" y="${vh-3}" text-anchor="end" font-size="6" fill="#2a2a2a" font-family="sans-serif" font-weight="700">${panelDef.label}</text>`;
 
     return `<div class="section front-panel-section">
-      <div class="section-title">\ud83d\udda5\ufe0f ${T.front_panel}</div>
-      <div class="front-panel-wrap">
-        <svg class="front-panel-svg" viewBox="0 0 ${vw} ${vh}" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="${panelDef.label} front panel">
-          <!-- Chassis -->
-          <rect x="0" y="0" width="${vw}" height="${vh}" rx="6"
-            fill="#141414" stroke="#2e2e2e" stroke-width="1"/>
-          <!-- Ventilation slots (right side texture) -->
-          ${Array.from({length:4},(_,i)=>
-            `<line x1="${vw-8}" y1="${8+i*7}" x2="${vw-4}" y2="${8+i*7}" stroke="#1f1f1f" stroke-width="1" stroke-linecap="round"/>`
-          ).join("")}
-          ${driveSvg}
-          ${extraSvg}
-          ${modelLabel}
-        </svg>
-      </div>
+      <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
+           role="img" aria-label="${panelDef.label} front panel">
+        <!-- Chassis (HDD section) -->
+        <rect x="0" y="0" width="${vw}" height="${vh}" rx="6"
+          fill="#141414" stroke="#2a2a2a" stroke-width="1"/>
+        ${driveSvg}
+        ${extraSvg}
+        ${modelLabel}
+        <!-- M.2 section -->
+        ${m2Height > 0 ? `<rect x="0" y="${vh + 2}" width="${vw}" height="${m2Height - 2}" rx="5" fill="#111" stroke="#1e1e1e" stroke-width="1"/>` : ""}
+        ${m2Svg}
+      </svg>
     </div>`;
   }
 
@@ -1027,7 +1070,7 @@ class SynologyNasCard extends HTMLElement {
     const _entReg  = this._hass?.entities?.[_marker];
     const _device  = _entReg?.device_id ? this._hass?.devices?.[_entReg.device_id] : null;
     const nasModel = _device?.model?.trim() || "";
-    const panelDef = this._config.show_front_panel
+    const panelDef = (this._config.show_drive_panel)
       ? findPanelDef(nasModel, driveSlots.length)
       : null;
 
@@ -1198,11 +1241,15 @@ class SynologyNasCard extends HTMLElement {
         <span class="load-cores">/ ${cores}</span>
       </div>` : ""}
 
-      ${panelDef ? this._frontPanel(panelDef, driveSlots, m2Slots) : ""}
-
-      ${drivesHtml ? `
+      ${panelDef ? `
       <div class="section">
         <div class="section-title">\ud83d\udcbe ${T.drive_bays}</div>
+        ${this._frontPanel(panelDef, driveSlots, m2Slots)}
+      </div>` : ""}
+
+      ${(this._config.show_drive_grid && drivesHtml) ? `
+      <div class="section">
+        ${!panelDef ? `<div class="section-title">\ud83d\udcbe ${T.drive_bays}</div>` : ""}
         <div class="drives-grid">${drivesHtml}</div>
       </div>` : ""}
 
@@ -1686,7 +1733,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 
 /* Front Panel */
-.front-panel-section { overflow: hidden; }
+/* front-panel-section: no extra styles needed (wrapped by .section parent) */
 .front-panel-wrap {
   width: 100%; overflow-x: auto;
   border-radius: 8px;
@@ -1842,8 +1889,12 @@ class SynologyNasCardEditor extends HTMLElement {
       <small>Number of CPU cores (used as max for the load average gauge — DS1821+ = 4, DS1621+ = 4, DS920+ = 4, DS224+ = 4)</small>
 
       <div class="check">
-        <input type="checkbox" id="show_front_panel" ${this._config.show_front_panel !== false ? "checked" : ""}>
-        <label for="show_front_panel">Show Front Panel (SVG device view)</label>
+        <input type="checkbox" id="show_drive_panel" ${this._config.show_drive_panel !== false ? "checked" : ""}>
+        <label for="show_drive_panel">Drive Bays: show SVG front-panel view</label>
+      </div>
+      <div class="check">
+        <input type="checkbox" id="show_drive_grid" ${this._config.show_drive_grid === true ? "checked" : ""}>
+        <label for="show_drive_grid">Drive Bays: also show text grid (slot details)</label>
       </div>
       <div class="check">
         <input type="checkbox" id="show_security" ${this._config.show_security !== false ? "checked" : ""}>
@@ -1956,7 +2007,7 @@ class SynologyNasCardEditor extends HTMLElement {
       this._fire();
     });
 
-    ["show_front_panel", "show_security", "show_memory", "show_power", "show_shutdown", "compact_mode", "hide_empty_bays"].forEach((id) => {
+    ["show_drive_panel", "show_drive_grid", "show_security", "show_memory", "show_power", "show_shutdown", "compact_mode", "hide_empty_bays"].forEach((id) => {
       this.shadowRoot.getElementById(id)?.addEventListener("change", (e) => {
         this._config = { ...this._config, [id]: e.target.checked };
         this._fire();
