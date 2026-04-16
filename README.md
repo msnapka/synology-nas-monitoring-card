@@ -163,6 +163,19 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.6.0
+- **SVG front panel** — visual chassis view of the NAS front face with colour-coded drive bays; replaces the old text grid by default. Slot border = temperature status, tray fill = drive status, LED = SMART status. Auto-detected from NAS model (DS1821+, DS920+, DS1621+, DS2422+, RS3621xs+, …); falls back to a generic N-bay layout for unknown models
+- **SYNOLOGY_PANEL_DEFS** — modular, data-only panel definitions. Adding a new NAS model requires only a single object entry in the source — no renderer changes needed
+- **M.2 NVMe slots in panel** — dynamically appended below the chassis in the SVG; no panel definition changes required
+- **Drive display mode** — two independent editor checkboxes: *SVG front-panel view* (default on) and *text grid* (default off). Both can be shown simultaneously
+- **Per-drive temperature sparklines** — 24h temperature history embedded directly in each SVG slot (same history API as the NAS temperature gauge)
+- **Drive capacity in SVG** — capacity label (e.g. `4.0T`, `960G`) shown centred in each drive tray
+- **Drive capacity in text grid** — appended to the bay label (e.g. `Slot 1  4.0 TB`)
+- **Drive model in expanded view** — model name (`drive_model` attribute) shown prominently at the top of the ▼ expand panel
+- **Hot spare colour changed to blue** — was amber/orange (looked like a warning); now blue to indicate a reserved standby drive
+- **Fix: expand duplicity** — the ▼ inline panel no longer repeats SMART / temperature already shown in the bay header
+- **Fix: Security Advisor "unknown"** — missing attributes now show `—` instead of the literal word "unknown"
+
 ### v0.4.0
 - **CPU gauge reworked** — now shows `cpu_load_average_15_min` instead of the instantaneous `cpu_utilization_total` (which was effectively random with the 15-minute Synology DSM polling interval)
 - **Load average row** — compact 1m / 5m / 15m values shown under the gauges, with `/ cores` context
