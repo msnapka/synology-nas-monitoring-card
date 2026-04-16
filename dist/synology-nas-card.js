@@ -692,12 +692,21 @@ class SynologyNasCard extends HTMLElement {
     if (badSec === "on") w.push(`\u26a0\ufe0f ${T.bad_sectors}`);
     if (remLife === "on") w.push(`\u26a0\ufe0f ${T.low_life}`);
 
+    // Drive model and capacity from entity attributes
+    const driveModel = stAttrs.drive_model || stAttrs.model || null;
+    const sizeMB     = stAttrs.drive_size_mb ?? stAttrs.disk_size_mb ?? null;
+    let capacityStr  = null;
+    if (!isNA && sizeMB) {
+      const tb = sizeMB / 1024 / 1024;
+      capacityStr = tb >= 0.95 ? `${tb.toFixed(1)} TB` : `${(sizeMB / 1024).toFixed(0)} GB`;
+    }
+
     // Build extra attributes for expanded view
-    // Skip internal HA meta-keys AND anything already shown in the bay header
+    // Skip internal HA meta-keys AND anything already shown in the bay header or promoted rows
     const skipAttrs = new Set([
       "friendly_name","icon","attribution","device_class","state_class","unit_of_measurement",
-      // already shown in header
       "smart_status","smart_status_short","temperature",
+      "drive_model","model","drive_size_mb","disk_size_mb",
     ]);
     const extraRows = Object.entries(stAttrs)
       .filter(([k, v]) => !skipAttrs.has(k) && v !== null && v !== "")
@@ -711,7 +720,7 @@ class SynologyNasCard extends HTMLElement {
       <div class="drive-bay-head" data-entity="${statusId}">
         <div class="drive-icon">${icon}</div>
         <div class="drive-info">
-          <div class="drive-label">${lbl}</div>
+          <div class="drive-label">${lbl}${capacityStr ? `<span class="drive-capacity"> ${capacityStr}</span>` : ""}</div>
           <div class="drive-status" style="color:${sColor}">${sTxt}</div>
           ${temp !== null ? `<div class="drive-temp">${temp}\u00b0C</div>` : ""}
           ${smart && smart !== "unknown" && smart !== "unavailable" ? `<div class="drive-smart">SMART: ${smart}</div>` : ""}
@@ -720,6 +729,7 @@ class SynologyNasCard extends HTMLElement {
       </div>
       ${!isNA ? `<button class="expand-toggle" data-expand-drive="${key}" title="${T.details}">${isOpen ? "\u25b2" : "\u25bc"}</button>` : ""}
       ${isOpen && !isNA ? `<div class="drive-expand">
+        ${driveModel ? `<div class="expand-model">${driveModel}</div>` : ""}
         ${extraRows || `<div class="expand-row"><span class="expand-key" style="opacity:.5">\u2014 ${T.no_attrs} \u2014</span></div>`}
       </div>` : ""}
     </div>`;
@@ -840,8 +850,17 @@ class SynologyNasCard extends HTMLElement {
       else if (smart && smart !== "unavailable" && smart !== "unknown") ledColor = "#f44336"; // red
       else                           ledColor = "#4caf50";  // default green when no SMART data
 
+      // Capacity from entity attributes
+      const attrs    = this._hass?.states[sid]?.attributes || {};
+      const sizeMB   = attrs.drive_size_mb ?? attrs.disk_size_mb ?? null;
+      let capacityTxt = null;
+      if (!isEmpty && sizeMB) {
+        const tb = sizeMB / 1024 / 1024;
+        capacityTxt = tb >= 0.95 ? `${tb.toFixed(1)}T` : `${(sizeMB / 1024).toFixed(0)}G`;
+      }
+
       return { isEmpty, isHotSpare, isNormal, isError, trayFill, borderStroke, ledColor, temp,
-               eid: sid, tid };
+               eid: sid, tid, capacityTxt };
     };
 
     /* render one drive slot */
@@ -864,6 +883,11 @@ class SynologyNasCard extends HTMLElement {
       const lblText = isM2 ? `M${slot}` : `${slot}`;
       const lbl  = `<text x="${x+4}" y="${y+8}" font-size="6" fill="#aaa" font-family="sans-serif" font-weight="600">${lblText}</text>`;
 
+      // Capacity label — centre of tray
+      const capTxt = (!info.isEmpty && info.capacityTxt)
+        ? `<text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="7" fill="#555" font-family="sans-serif" font-weight="600">${info.capacityTxt}</text>`
+        : "";
+
       // Temperature — bottom centre, only when occupied
       const tmpTxt = (!info.isEmpty && info.temp !== null)
         ? `<text x="${x+w/2}" y="${y+h-3}" text-anchor="middle" font-size="6" fill="#888" font-family="sans-serif">${info.temp}°</text>`
@@ -878,7 +902,7 @@ class SynologyNasCard extends HTMLElement {
       return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}"${clickAttr}>
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
           fill="#111" stroke="${info.borderStroke}" stroke-width="1.5"/>
-        ${tray}${led}${handle}${lbl}${spark}${tmpTxt}
+        ${tray}${led}${handle}${lbl}${capTxt}${spark}${tmpTxt}
       </g>`;
     };
 
@@ -1580,6 +1604,12 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .drive-status { font-size: .75em; font-weight: 600; text-transform: capitalize; }
 .drive-temp, .drive-smart { font-size: .7em; color: var(--secondary-text-color); }
 .drive-warnings { font-size: .7em; color: var(--error-color,#f44336); margin-top: 2px; }
+.drive-capacity { font-size: .75em; font-weight: 400; color: var(--secondary-text-color); margin-left: 4px; }
+.expand-model {
+  font-size: .78em; font-weight: 600; color: var(--primary-text-color);
+  padding: 3px 0 5px; border-bottom: 1px solid color-mix(in srgb, var(--divider-color,#e0e0e0) 50%, transparent);
+  margin-bottom: 3px;
+}
 
 /* Inline expand (drives + volumes) */
 .expand-toggle {
