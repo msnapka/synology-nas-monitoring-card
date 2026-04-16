@@ -163,6 +163,14 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.7.0
+- **SVG slot redesign** — slot number top-left (bold, readable), SMART LED top-right with `S` label, capacity centred, sparkline in the lower 40% of the tray (no overlap), temperature bottom-left coloured green / orange / red matching the border
+- **M.2 in same chassis** — single chassis rectangle with divider line and "M.2 NVMe" label; M.2 tiles are 60px tall; labels read `M.2#1` / `M.2#2`
+- **Empty M.2 slots** shown as placeholder trays via `m2_max` in panel definitions (DS1821+, DS920+, DS923+, DS723+, DS1522+, DS1621+, DS1823xs+)
+- **Memory section** switched to a single-column list with zebra striping — no more confusing 2-column scatter
+- **Uptime** moved to its own non-bold line directly below the DSM version
+- **Open DSM link** promoted from footer to the header row next to the DSM version — always visible
+
 ### v0.6.0
 - **SVG front panel** — visual chassis view of the NAS front face with colour-coded drive bays; replaces the old text grid by default. Slot border = temperature status, tray fill = drive status, LED = SMART status. Auto-detected from NAS model (DS1821+, DS920+, DS1621+, DS2422+, RS3621xs+, …); falls back to a generic N-bay layout for unknown models
 - **SYNOLOGY_PANEL_DEFS** — modular, data-only panel definitions. Adding a new NAS model requires only a single object entry in the source — no renderer changes needed
