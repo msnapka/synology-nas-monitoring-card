@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.7.0
+ * @version 0.8.0
  * @license MIT
  */
 
-const CARD_VERSION = "0.7.0";
+const CARD_VERSION = "0.8.0";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -79,6 +79,8 @@ const T = {
     details: "Details",
     no_attrs: "No extra attributes",
     front_panel: "Front Panel",
+    sec_all_passed: "All security checks passed",
+    sec_passed: "passed",
   },
   cs: {
     healthy: "V po\u0159\u00e1dku",
@@ -138,6 +140,8 @@ const T = {
     details: "Detaily",
     no_attrs: "Žádné další atributy",
     front_panel: "Přední panel",
+    sec_all_passed: "Všechny bezpečnostní kontroly v pořádku",
+    sec_passed: "v pořádku",
   },
 }[_LANG];
 
@@ -243,75 +247,64 @@ function _makeHddRow(startX, y, w, h, gap, count, startSlot) {
 const SYNOLOGY_PANEL_DEFS = {
   /* ── 2-bay desktop ── */
   "DS224+": { label: "DS224+",   vw: 120, vh: 90,
-    drives: _makeHddRow(4, 5, 38, 80, 4, 2, 1),
-    extras: [{ type:"power", x:99, y:25, r:5 }, { type:"led", x:99, y:42, r:3 }, { type:"usb", x:93, y:55, w:12, h:8 }] },
+    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
   "DS223":  { label: "DS223",    vw: 120, vh: 90,
-    drives: _makeHddRow(4, 5, 38, 80, 4, 2, 1),
-    extras: [{ type:"power", x:99, y:25, r:5 }, { type:"led", x:99, y:42, r:3 }] },
+    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
   "DS723+": { label: "DS723+",   vw: 120, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 4, 2, 1),
-    extras: [{ type:"power", x:99, y:25, r:5 }, { type:"led", x:99, y:42, r:3 }, { type:"usb", x:93, y:55, w:12, h:8 }] },
+    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
 
   /* ── 4-bay desktop ── */
   "DS920+": { label: "DS920+",   vw: 200, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 4, 1),
-    extras: [{ type:"power", x:180, y:25, r:5 }, { type:"led", x:180, y:42, r:3 }, { type:"usb", x:174, y:55, w:12, h:8 }] },
+    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
   "DS923+": { label: "DS923+",   vw: 200, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 4, 1),
-    extras: [{ type:"power", x:180, y:25, r:5 }, { type:"led", x:180, y:42, r:3 }, { type:"usb", x:174, y:55, w:12, h:8 }] },
+    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
   "DS423+": { label: "DS423+",   vw: 200, vh: 90,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 4, 1),
-    extras: [{ type:"power", x:180, y:25, r:5 }, { type:"led", x:180, y:42, r:3 }] },
+    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
   "DS1019+":{ label: "DS1019+",  vw: 200, vh: 90,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 4, 1),
-    extras: [{ type:"power", x:180, y:25, r:5 }, { type:"led", x:180, y:42, r:3 }] },
+    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
 
   /* ── 5-bay desktop ── */
   "DS1522+": { label: "DS1522+", vw: 244, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 5, 1),
-    extras: [{ type:"power", x:224, y:25, r:5 }, { type:"led", x:224, y:42, r:3 }] },
+    drives: _makeHddRow(4, 5, 45, 80, 3, 5, 1), extras: [] },
 
   /* ── 6-bay desktop ── */
   "DS1621+": { label: "DS1621+", vw: 286, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 6, 1),
-    extras: [{ type:"power", x:268, y:25, r:5 }, { type:"led", x:268, y:42, r:3 }, { type:"usb", x:262, y:55, w:12, h:8 }] },
+    drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
   "DS1621xs+":{ label: "DS1621xs+", vw: 286, vh: 90,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 6, 1),
-    extras: [{ type:"power", x:268, y:25, r:5 }, { type:"led", x:268, y:42, r:3 }] },
+    drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
 
-  /* ── 8-bay desktop (DS1821+, flagship) ── */
-  "DS1821+": { label: "DS1821+", vw: 368, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 8, 1),
-    extras: [
-      { type:"power",  x:350, y:22, r:6 },
-      { type:"led",    x:350, y:40, r:3 },
-      { type:"usb",    x:344, y:52, w:12, h:8 },
-      { type:"led",    x:350, y:68, r:3, role:"status" },
-    ] },
-  "DS1823xs+":{ label: "DS1823xs+", vw: 368, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 38, 80, 3, 8, 1),
-    extras: [{ type:"power", x:350, y:22, r:6 }, { type:"led", x:350, y:40, r:3 }, { type:"usb", x:344, y:52, w:12, h:8 }] },
+  /* ── 8-bay desktop (DS1821+ — realistic 2×4 tower layout) ── */
+  "DS1821+": { label: "DS1821+", vw: 200, vh: 180, m2_max: 2,
+    drives: [
+      ..._makeHddRow(4, 5,  44, 80, 3, 4, 1),
+      ..._makeHddRow(4, 92, 44, 80, 3, 4, 5),
+    ],
+    extras: [] },
+  "DS1823xs+":{ label: "DS1823xs+", vw: 200, vh: 180, m2_max: 2,
+    drives: [
+      ..._makeHddRow(4, 5,  44, 80, 3, 4, 1),
+      ..._makeHddRow(4, 92, 44, 80, 3, 4, 5),
+    ],
+    extras: [] },
 
   /* ── 12-bay desktop ── */
   "DS2422+": { label: "DS2422+", vw: 284, vh: 180,
-    // 2 rows of 6
     drives: [
-      ..._makeHddRow(4, 5,  26, 80, 2, 6, 1),
-      ..._makeHddRow(4, 92, 26, 80, 2, 6, 7),
+      ..._makeHddRow(4, 5,  44, 80, 3, 6, 1),
+      ..._makeHddRow(4, 92, 44, 80, 3, 6, 7),
     ],
-    extras: [{ type:"power", x:266, y:22, r:6 }, { type:"led", x:266, y:40, r:3 }] },
+    extras: [] },
 
   /* ── Rack 4U 12-bay ── */
   "RS3621xs+": { label: "RS3621xs+", vw: 400, vh: 60,
-    drives: _makeHddRow(4, 5, 26, 50, 2, 12, 1),
-    extras: [{ type:"power", x:382, y:15, r:5 }, { type:"led", x:382, y:35, r:3 }] },
+    drives: _makeHddRow(4, 5, 30, 50, 2, 12, 1), extras: [] },
 
   /* ── Generic fallbacks (used when model not in list) ── */
-  "_generic_2": { label: "NAS (2-bay)",  vw: 120, vh: 90, drives: _makeHddRow(4, 5, 38, 80, 4, 2, 1), extras: [] },
-  "_generic_4": { label: "NAS (4-bay)",  vw: 200, vh: 90, m2_max: 0, drives: _makeHddRow(4, 5, 38, 80, 3, 4, 1), extras: [] },
-  "_generic_6": { label: "NAS (6-bay)",  vw: 286, vh: 90, drives: _makeHddRow(4, 5, 38, 80, 3, 6, 1), extras: [] },
-  "_generic_8": { label: "NAS (8-bay)",  vw: 368, vh: 90, drives: _makeHddRow(4, 5, 38, 80, 3, 8, 1), extras: [] },
-  "_generic_12":{ label: "NAS (12-bay)", vw: 284, vh: 180, drives: [..._makeHddRow(4,5,26,80,2,6,1),..._makeHddRow(4,92,26,80,2,6,7)], extras: [] },
+  "_generic_2": { label: "NAS (2-bay)",  vw: 120, vh: 90, drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
+  "_generic_4": { label: "NAS (4-bay)",  vw: 200, vh: 90, m2_max: 0, drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
+  "_generic_6": { label: "NAS (6-bay)",  vw: 286, vh: 90, drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
+  "_generic_8": { label: "NAS (8-bay)",  vw: 200, vh: 180, drives: [..._makeHddRow(4,5,44,80,3,4,1),..._makeHddRow(4,92,44,80,3,4,5)], extras: [] },
+  "_generic_12":{ label: "NAS (12-bay)", vw: 284, vh: 180, drives: [..._makeHddRow(4,5,44,80,3,6,1),..._makeHddRow(4,92,44,80,3,6,7)], extras: [] },
 };
 
 /* Return the best panel definition for a model + detected bay counts.
@@ -423,6 +416,7 @@ class SynologyNasCard extends HTMLElement {
     this._notifFeedback = false;
     this._uptimeInterval = null;
     this._openSecKeys = new Set();
+    this._securityExpanded = false;
     this._openDrives = new Set();   // drive bay keys with inline expand open
     this._openVolumes = new Set();  // volume ids with inline expand open
     this._history = {};             // entity_id -> [{t: ms, v: number}, ...]
@@ -615,6 +609,11 @@ class SynologyNasCard extends HTMLElement {
     el.classList.add("clickable");
     el.setAttribute("title", entityId);
     el.addEventListener("click", (e) => {
+      // For nested [data-entity] regions (e.g. drive-bay SVG with sub-groups),
+      // ensure only the innermost matching element handles the click.
+      const target = e.target instanceof Element ? e.target : null;
+      const closest = target?.closest?.("[data-entity]");
+      if (closest && closest !== el) return; // inner handler will fire
       e.stopPropagation();
       this._moreInfo(entityId);
     });
@@ -808,7 +807,7 @@ class SynologyNasCard extends HTMLElement {
 
   /* ── front panel SVG ── */
   _frontPanel(panelDef, hddSlots, m2Slots) {
-    const { vw, vh, drives, extras = [] } = panelDef;
+    const { vw, vh, drives } = panelDef;
     const thr = this._config.thresholds || {};
     const driveTempWarn = thr.drive_temp_warn ?? 45;
     const driveTempHot  = driveTempWarn + 12;
@@ -860,74 +859,101 @@ class SynologyNasCard extends HTMLElement {
       }
 
       return { isEmpty, isHotSpare, isNormal, isError, trayFill, borderStroke, ledColor, temp,
-               eid: sid, tid, capacityTxt };
+               eid: sid, tid, smid, smart, capacityTxt };
     };
 
-    /* render one drive slot — layout:
-       [slot#]          [●LED SMART]   ← top bar
-       [       4.0T          ]         ← capacity centred (if known)
-       [  ~~sparkline~~  ]             ← 24h temp history (big, lower half)
-       [🌡 30°               ]         ← temperature bottom-left, coloured by threshold
+    /* render one drive slot — at-a-glance layout:
+         ┌──────────────────────┐
+         │ #1             ✓ SMART│  ← slot# top-left, SMART glyph top-right
+         │      4.0 TB          │  ← capacity centred, large
+         │   ╱╲    ╱╲           │  ← sparkline (middle-bottom ~35%)
+         │  ╱  ╲__╱  ╲__        │
+         │ 🌡 30°C              │  ← temp bottom-left, colour-coded
+         └──────────────────────┘
+       Empty  → grey, "Empty" centred
+       Spare  → blue tint, "SPARE" label
+       Distinct <g data-entity> regions for per-part more-info
     */
     const renderSlot = (x, y, w, h, type, slot) => {
       const info = slotInfo(type, slot);
-
-      // Temperature text colour matches border (= threshold feedback)
-      const tempColor = (info.temp !== null && info.temp >= driveTempHot) ? "#f44336"
-                      : (info.temp !== null && info.temp >= driveTempWarn) ? "#ff6b00"
-                      : "#777";
-
-      // Sparkline — occupies the lower 40% of the tray, above the temp label
-      const sparkH = Math.max(10, Math.round(h * 0.38));
-      const sparkY = y + h - sparkH - 12; // 12px for temp label below
-      const sparkColor = (info.temp !== null && info.temp >= driveTempWarn) ? "#ff6b00" : "#03a9f4";
-      const spark = info.isEmpty ? "" : this._sparklineSVGPath(
-        info.tid, x + 3, sparkY, w - 6, sparkH, sparkColor
-      );
-
-      // Tray background
-      const tray = `<rect x="${x+1.5}" y="${y+1.5}" width="${w-3}" height="${h-3}" rx="2.5" fill="${info.trayFill}"/>`;
-
-      // LED (SMART) — top-right corner
-      const ledCx = x + w - 8;
-      const ledCy = y + 10;
-      const led  = info.ledColor
-        ? `<circle cx="${ledCx}" cy="${ledCy}" r="3.5" fill="${info.ledColor}"/>
-           <circle cx="${ledCx}" cy="${ledCy}" r="5.5" fill="none" stroke="${info.ledColor}" stroke-width="0.5" opacity="0.35"/>`
-        : `<circle cx="${ledCx}" cy="${ledCy}" r="3.5" fill="#1c1c1c"/>`;
-
-      // "S" label under LED (SMART indicator)
-      const smartLbl = info.isEmpty ? "" :
-        `<text x="${ledCx}" y="${ledCy+8}" text-anchor="middle" font-size="4.5" fill="${info.ledColor || '#444'}" font-family="sans-serif" opacity="0.8">S</text>`;
-
-      // Slot number — top-left
       const isM2 = type === "m2";
-      const lblText = isM2 ? `M.2#${slot}` : `${slot}`;
-      const lblFontSize = isM2 ? 5 : 7;
-      const lbl = `<text x="${x+4}" y="${y+11}" font-size="${lblFontSize}" fill="#ccc" font-family="sans-serif" font-weight="700">${lblText}</text>`;
 
-      // Capacity — centre of tray, visible but not dominant
-      const capY = y + Math.round(h * 0.38);
-      const capTxt = (!info.isEmpty && info.capacityTxt)
-        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="8" fill="#666" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
-        : "";
+      // Temperature colour by threshold
+      const tempColor = (info.temp !== null && info.temp >= driveTempHot) ? "#f44336"
+                      : (info.temp !== null && info.temp >= driveTempWarn) ? "#ffb300"
+                      : "#4caf50";
+      const sparkColor = (info.temp !== null && info.temp >= driveTempWarn) ? "#ffb300" : "#03a9f4";
 
-      // Temperature — bottom-left, coloured
-      const tmpTxt = (!info.isEmpty && info.temp !== null)
-        ? `<text x="${x+4}" y="${y+h-3}" font-size="7" fill="${tempColor}" font-family="sans-serif" font-weight="600">${info.temp}°</text>`
-        : "";
-
-      // Thermometer icon-ish next to temp (small "T" in matching colour)
-      const tmpIcon = (!info.isEmpty && info.temp !== null)
-        ? `<text x="${x+w-4}" y="${y+h-3}" text-anchor="end" font-size="5.5" fill="${tempColor}" font-family="sans-serif" opacity="0.7">°C</text>`
-        : "";
-
-      const clickAttr = info.eid ? ` data-entity="${info.eid}" style="cursor:pointer"` : "";
-
-      return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}"${clickAttr}>
-        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
+      // Chassis rect + tray
+      const chassis = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
           fill="#111" stroke="${info.borderStroke}" stroke-width="1.5"/>
-        ${tray}${led}${smartLbl}${lbl}${capTxt}${spark}${tmpTxt}${tmpIcon}
+        <rect x="${x+1.5}" y="${y+1.5}" width="${w-3}" height="${h-3}" rx="2.5" fill="${info.trayFill}"/>`;
+
+      // Empty bay — simple label, still clickable to status entity
+      if (info.isEmpty) {
+        const emptyLbl = isM2 ? "M.2" : `#${slot}`;
+        return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}" data-entity="${info.eid}" style="cursor:pointer">
+          ${chassis}
+          <text x="${x+5}" y="${y+12}" font-size="${isM2?5:7}" fill="#555" font-family="sans-serif" font-weight="700">${emptyLbl}</text>
+          <text x="${x+w/2}" y="${y+h/2+3}" text-anchor="middle" font-size="${Math.min(9, w*0.18)}" fill="#555" font-family="sans-serif" font-style="italic">${T.empty}</text>
+        </g>`;
+      }
+
+      // Slot label top-left (e.g. "#1" or "M.2#1")
+      const lblText = isM2 ? `M.2#${slot}` : `#${slot}`;
+      const lblFontSize = isM2 ? 5.5 : 7;
+      const slotLbl = `<text x="${x+5}" y="${y+11}" font-size="${lblFontSize}" fill="#d0d0d0" font-family="sans-serif" font-weight="700">${lblText}</text>`;
+
+      // Top-right: SMART indicator (✓ / ✗ / — ) + data-entity wrapped
+      let smartGlyph = "—", smartColor = "#888";
+      if (info.smart === "normal")                                          { smartGlyph = "\u2713"; smartColor = "#4caf50"; }
+      else if (info.smart && info.smart !== "unknown" && info.smart !== "unavailable") { smartGlyph = "\u2717"; smartColor = "#f44336"; }
+      const smartX = x + w - 5;
+      const smartY = y + 11;
+      const smartEid = info.smid && this._hass?.states[info.smid] ? info.smid : info.eid;
+      const smartGroup = `<g data-entity="${smartEid}" style="cursor:pointer">
+        <rect x="${smartX - 14}" y="${smartY - 9}" width="16" height="11" fill="transparent"/>
+        <text x="${smartX}" y="${smartY}" text-anchor="end" font-size="${isM2?6:8}" fill="${smartColor}" font-family="sans-serif" font-weight="700">${smartGlyph}</text>
+      </g>`;
+
+      // Hot spare — show "SPARE" banner prominently, skip capacity/sparkline clutter
+      if (info.isHotSpare) {
+        return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
+          <g data-entity="${info.eid}" style="cursor:pointer">${chassis}${slotLbl}</g>
+          ${smartGroup}
+          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(10, w*0.2)}" fill="#2196f3" font-family="sans-serif" font-weight="800" letter-spacing="1">SPARE</text>
+        </g>`;
+      }
+
+      // Capacity — centred near top-middle (bigger, readable)
+      const capFontSize = isM2 ? 6.5 : Math.min(10, w * 0.2);
+      const capY = y + Math.round(h * 0.42);
+      const capTxt = info.capacityTxt
+        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#e0e0e0" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
+        : "";
+
+      // Sparkline middle-bottom ~35% of bay, with data-entity on temperature entity
+      const sparkPadTop = 3, sparkBottomPad = 13;
+      const sparkH = Math.max(8, Math.round(h * 0.34));
+      const sparkY = y + h - sparkH - sparkBottomPad;
+      const sparkPath = this._sparklineSVGPath(info.tid, x + 4, sparkY + sparkPadTop, w - 8, sparkH - sparkPadTop, sparkColor);
+      // Temperature text bottom-left
+      const tempStr = info.temp !== null ? `${info.temp}°C` : "—";
+      const tempTxt = `<text x="${x+5}" y="${y+h-4}" font-size="${isM2?6:7}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
+
+      // Temperature/sparkline clickable region = temperature entity
+      const tempGroup = `<g data-entity="${info.tid}" style="cursor:pointer">
+        <rect x="${x+2}" y="${sparkY}" width="${w-4}" height="${h - (sparkY - y) - 2}" fill="transparent"/>
+        ${sparkPath}${tempTxt}
+      </g>`;
+
+      // Body region (capacity + label) — status entity
+      const bodyGroup = `<g data-entity="${info.eid}" style="cursor:pointer">
+        ${chassis}${slotLbl}${capTxt}
+      </g>`;
+
+      return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
+        ${bodyGroup}${smartGroup}${tempGroup}
       </g>`;
     };
 
@@ -936,65 +962,44 @@ class SynologyNasCard extends HTMLElement {
       renderSlot(x, y, w, h, type, slot)
     ).join("");
 
-    /* ── M.2 slots — integrated into same chassis, below a divider line ──
+    /* ── M.2 slots — fully integrated into the same chassis, tight vertical spacing (~8px) ──
        Uses panelDef.m2_max to show placeholder empty slots even when entity doesn't exist */
     let m2Svg = "";
     let m2Height = 0;
     const m2Max = panelDef.m2_max || 0;
-    // Combine detected slots with expected slots from panel def
     const m2All = [...new Set([...m2Slots, ...Array.from({ length: m2Max }, (_, i) => i + 1)])]
       .sort((a, b) => a - b);
+    const m2GapFromHdd = 8; // tight gap between HDD row bottom and M.2 row top
     if (m2All.length > 0) {
-      const mw  = Math.min(120, Math.floor((vw - 16) / m2All.length) - 6);
-      const mh  = 60;
-      const gap = 6;
+      const mw  = Math.min(90, Math.floor((vw - 12) / m2All.length) - 4);
+      const mh  = 34;
+      const gap = 4;
       const totalM2W = m2All.length * mw + (m2All.length - 1) * gap;
       const mStartX  = Math.floor((vw - totalM2W) / 2);
-      const mStartY  = vh + 14; // 14px below HDD chassis (leaves room for divider + label)
-      m2Height = mh + 18;
+      const mStartY  = vh + m2GapFromHdd;
+      m2Height = m2GapFromHdd + mh + 2;
       m2Svg = m2All.map((slot, idx) =>
         renderSlot(mStartX + idx * (mw + gap), mStartY, mw, mh, "m2", slot)
       ).join("");
     }
 
-    const totalH = m2Height > 0 ? vh + m2Height + 4 : vh;
+    const totalH = m2Height > 0 ? vh + m2Height : vh;
 
-    /* ── Extras (power button, USB, status LEDs) ── */
-    const extraSvg = extras.map(({ type, x, y, r, w: ew, h: eh }) => {
-      if (type === "power")
-        return `<circle cx="${x}" cy="${y}" r="${r||6}" fill="#181818" stroke="#333" stroke-width="1"/>
-                <text x="${x}" y="${y+2.5}" text-anchor="middle" dominant-baseline="middle" font-size="7" fill="#444" font-family="sans-serif">⏻</text>`;
-      if (type === "usb")
-        return `<rect x="${x}" y="${y}" width="${ew||12}" height="${eh||7}" rx="2" fill="#0a0a0a" stroke="#2a2a2a" stroke-width="0.8"/>
-                <rect x="${x+2}" y="${y+2}" width="${(ew||12)-4}" height="${(eh||7)-4}" rx="1" fill="#111"/>`;
-      if (type === "led")
-        return `<circle cx="${x}" cy="${y}" r="${r||3}" fill="#4caf50" opacity="0.8"/>`;
-      return "";
-    }).join("");
-
-    /* ── Model label ── */
-    const modelLabel = `<text x="${vw-3}" y="${vh-3}" text-anchor="end" font-size="6" fill="#2a2a2a" font-family="sans-serif" font-weight="700">${panelDef.label}</text>`;
+    /* Extras (LEDs / USB / power button) — removed in v0.8.0 for visual cleanliness */
 
     return `<div class="section front-panel-section">
       <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
            role="img" aria-label="${panelDef.label} front panel">
-        <!-- Single chassis rect covers HDD + M.2 sections -->
+        <!-- Unified chassis: HDDs + M.2 share one frame -->
         <rect x="0" y="0" width="${vw}" height="${totalH}" rx="6"
           fill="#141414" stroke="#2a2a2a" stroke-width="1"/>
         ${driveSvg}
-        ${extraSvg}
-        ${modelLabel}
-        ${m2Height > 0 ? `
-        <!-- M.2 divider -->
-        <line x1="8" y1="${vh + 1}" x2="${vw - 8}" y2="${vh + 1}" stroke="#2a2a2a" stroke-width="0.8"/>
-        <text x="${vw / 2}" y="${vh + 10}" text-anchor="middle" font-size="6" fill="#3a3a3a"
-          font-family="sans-serif" font-weight="600" letter-spacing="1">M.2 NVMe</text>
-        ${m2Svg}` : ""}
+        ${m2Svg}
       </svg>
     </div>`;
   }
 
-  /* ── security ── */
+  /* ── security — compact when all checks safe, expanded when issues present ── */
   _security() {
     const entity = this._b("security_status");
     const attrs  = this._hass?.states[entity]?.attributes || {};
@@ -1007,31 +1012,73 @@ class SynologyNasCard extends HTMLElement {
       { key: "userInfo",        label: T.sec_users,    icon: "\ud83d\udc64" },
     ];
 
-    const items = checks.map((c) => {
-      const v    = attrs[c.key];
-      const safe = v === "safe";
-      // If attribute is missing entirely (entity not yet populated), show neutral state
-      const missing = v === undefined || v === null;
-      const val  = missing ? "\u2014" : v;
-      let emoji  = "\u2014";
-      if (safe)                              emoji = "\u2705";
-      else if (v === "danger")               emoji = "\ud83d\udd34";
-      else if (v === "outOfDate")            emoji = "\u2b06\ufe0f";
-      else if (v === "risk" || v === "info") emoji = "\u26a0\ufe0f";
-      else if (!missing)                     emoji = "\u26a0\ufe0f";
+    const classify = (v) => {
+      if (v === undefined || v === null) return "missing";
+      if (v === "safe") return "safe";
+      if (v === "danger") return "danger";
+      if (v === "outOfDate" || v === "risk" || v === "info") return "warning";
+      return "warning";
+    };
+    const tiles = checks.map((c) => ({ ...c, v: attrs[c.key], state: classify(attrs[c.key]) }));
 
-      const isOpen = this._openSecKeys?.has(c.key);
-      return `<div class="security-item ${safe ? "safe" : (v && !missing ? "warn" : "")}" data-sec-key="${c.key}">
-        <span class="security-icon">${c.icon}</span>
-        <span class="security-label">${c.label}</span>
+    const renderTile = (t) => {
+      const safe = t.state === "safe";
+      const warn = t.state === "warning";
+      const danger = t.state === "danger";
+      const val = (t.v === undefined || t.v === null) ? "\u2014" : t.v;
+      let emoji  = "\u2014";
+      if (safe)        emoji = "\u2705";
+      else if (danger) emoji = "\ud83d\udd34";
+      else if (warn)   emoji = "\u26a0\ufe0f";
+      const cls = safe ? "safe" : (danger ? "danger" : (warn ? "warn" : ""));
+      const isOpen = this._openSecKeys?.has(t.key);
+      return `<div class="security-item ${cls}" data-sec-key="${t.key}" data-entity="${entity}">
+        <span class="security-icon">${t.icon}</span>
+        <span class="security-label">${t.label}</span>
         <span class="security-badge">${emoji}</span>
         <div class="security-detail${isOpen ? " show" : ""}">${val}</div>
       </div>`;
-    }).join("");
+    };
 
+    const presentTiles = tiles.filter((t) => t.state !== "missing");
+    const safeTiles    = presentTiles.filter((t) => t.state === "safe");
+    const issueTiles   = presentTiles.filter((t) => t.state === "warning" || t.state === "danger");
+    const expanded     = this._securityExpanded === true;
+
+    const header = `<div class="section-title" data-entity="${entity}">\ud83d\udee1\ufe0f ${T.security}</div>`;
+
+    // All safe → single compact row with expand toggle
+    if (presentTiles.length > 0 && issueTiles.length === 0) {
+      return `<div class="section">
+        ${header}
+        <div class="security-summary all-safe" id="btn-security-toggle">
+          <span class="sec-check">\u2705</span>
+          <span class="sec-msg">${T.sec_all_passed || "All security checks passed"}</span>
+          <span class="sec-chevron">${expanded ? "\u25b2" : "\u25bc"}</span>
+        </div>
+        ${expanded ? `<div class="security-grid">${tiles.map(renderTile).join("")}</div>` : ""}
+      </div>`;
+    }
+
+    // Issues present → show issue tiles prominently + collapsed "N passed" chip
+    if (issueTiles.length > 0) {
+      return `<div class="section">
+        ${header}
+        <div class="security-grid">${issueTiles.map(renderTile).join("")}</div>
+        ${safeTiles.length ? `
+        <div class="security-passed-chip" id="btn-security-toggle">
+          <span>${safeTiles.length} ${T.sec_passed || "passed"} \u2705</span>
+          <span class="sec-chevron">${expanded ? "\u25b2" : "\u25bc"}</span>
+        </div>
+        ${expanded ? `<div class="security-grid passed-grid">${safeTiles.map(renderTile).join("")}</div>` : ""}
+        ` : ""}
+      </div>`;
+    }
+
+    // All missing — fallback to default grid
     return `<div class="section">
-      <div class="section-title" data-entity="${this._b("security_status")}">\ud83d\udee1\ufe0f ${T.security}</div>
-      <div class="security-grid">${items}</div>
+      ${header}
+      <div class="security-grid">${tiles.map(renderTile).join("")}</div>
     </div>`;
   }
 
@@ -1121,11 +1168,14 @@ class SynologyNasCard extends HTMLElement {
     const m2Slots    = detectM2Slots(this._hass, p);
     const volSlots   = detectVolumes(this._hass, p);
 
-    // Resolve NAS model for front panel
+    // Resolve NAS model + device for front panel and DSM URL auto-detection
     const _marker  = `sensor.${p}_cpu_utilization_total`;
     const _entReg  = this._hass?.entities?.[_marker];
     const _device  = _entReg?.device_id ? this._hass?.devices?.[_entReg.device_id] : null;
     const nasModel = _device?.model?.trim() || "";
+    // Auto-detect DSM URL from HA device registry (configuration_url), fall back to user config
+    const _autoDsmUrl = _device?.configuration_url || "";
+    const dsmUrl = this._config.dsm_url || _autoDsmUrl || "";
     const panelDef = (this._config.show_drive_panel)
       ? findPanelDef(nasModel, driveSlots.length)
       : null;
@@ -1217,9 +1267,9 @@ class SynologyNasCard extends HTMLElement {
 
     // Footer
     const footerItems = [];
-    if (this._config.dsm_url) {
+    if (dsmUrl) {
       footerItems.push(
-        `<a href="${this._config.dsm_url}" target="_blank" rel="noopener noreferrer" class="dsm-link">\ud83c\udf10 ${T.open_dsm}</a>`
+        `<a href="${dsmUrl}" target="_blank" rel="noopener noreferrer" class="dsm-link">\ud83c\udf10 ${T.open_dsm}</a>`
       );
     }
     if (this._config.show_power) {
@@ -1261,7 +1311,7 @@ class SynologyNasCard extends HTMLElement {
         <div class="header-sub">
           ${dsmDisplay ? `<span class="dsm-ver" data-entity="update.${p}_dsm_update">DSM ${dsmDisplay}</span>` : ""}
           ${hasUpd ? `<button class="update-badge" id="btn-install-update" title="${T.install_update}">\u2b06\ufe0f ${dsmLatest}</button>` : ""}
-          ${this._config.dsm_url ? `<a href="${this._config.dsm_url}" target="_blank" rel="noopener noreferrer" class="dsm-link-inline">\ud83c\udf10 ${T.open_dsm}</a>` : ""}
+          ${dsmUrl ? `<a href="${dsmUrl}" target="_blank" rel="noopener noreferrer" class="dsm-link-inline">\ud83c\udf10 ${T.open_dsm}</a>` : ""}
         </div>
         ${uptime ? `<div class="header-sub uptime-line"><span class="uptime-txt">${T.uptime} ${uptime}</span></div>` : ""}
         ${bootStr ? `
@@ -1349,18 +1399,16 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Security item click → toggle detail (persistent across re-renders)
-    this.shadowRoot.querySelectorAll(".security-item").forEach((el) => {
-      el.style.cursor = "pointer";
-      el.addEventListener("click", (e) => {
+    // Security summary toggle (compact "All passed" / "N passed" chip) → expand/collapse all tiles
+    const secToggle = this.shadowRoot.getElementById("btn-security-toggle");
+    if (secToggle) {
+      secToggle.style.cursor = "pointer";
+      secToggle.addEventListener("click", (e) => {
         e.stopPropagation();
-        const key = el.getAttribute("data-sec-key");
-        if (!key) return;
-        if (this._openSecKeys.has(key)) this._openSecKeys.delete(key);
-        else this._openSecKeys.add(key);
-        el.querySelector(".security-detail")?.classList.toggle("show");
+        this._securityExpanded = !this._securityExpanded;
+        this._render();
       });
-    });
+    }
 
     // Drive bay inline expand toggles
     this.shadowRoot.querySelectorAll("[data-expand-drive]").forEach((el) => {
@@ -1754,6 +1802,30 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .security-item.warn {
   background: color-mix(in srgb, var(--warning-color,#ff9800) 10%, transparent);
 }
+.security-item.danger {
+  background: color-mix(in srgb, var(--error-color,#f44336) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--error-color,#f44336) 40%, transparent);
+}
+.security-summary {
+  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
+  border-radius: 8px; font-size: .9em; cursor: pointer;
+  background: color-mix(in srgb, var(--success-color,#4caf50) 12%, transparent);
+  color: var(--success-color,#4caf50); font-weight: 600;
+  transition: background .2s;
+}
+.security-summary:hover { background: color-mix(in srgb, var(--success-color,#4caf50) 20%, transparent); }
+.security-summary .sec-check { font-size: 1.1em; }
+.security-summary .sec-msg { flex: 1; }
+.security-summary .sec-chevron { opacity: .7; font-size: .85em; }
+.security-passed-chip {
+  display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
+  padding: 4px 10px; border-radius: 12px; font-size: .75em; cursor: pointer;
+  background: color-mix(in srgb, var(--success-color,#4caf50) 12%, transparent);
+  color: var(--success-color,#4caf50); font-weight: 600;
+  transition: background .2s;
+}
+.security-passed-chip:hover { background: color-mix(in srgb, var(--success-color,#4caf50) 22%, transparent); }
+.security-grid.passed-grid { margin-top: 8px; opacity: .85; }
 .security-icon { font-size: 1em; }
 .security-label { flex: 1; color: var(--primary-text-color); }
 .security-badge { font-size: 1em; }

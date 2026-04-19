@@ -163,6 +163,15 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.8.0
+- **Auto-detect DSM URL** — the "Open DSM" link now auto-resolves from the HA device registry's `configuration_url` if no `dsm_url` is set in the card config
+- **DS1821+ realistic 2×4 layout** — drive bays rendered in the actual tower arrangement (2 rows × 4 columns, portrait-ish panel) instead of a single 1×8 strip; other multi-row models updated to match
+- **Removed chassis noise** — LEDs, USB ports and power buttons are no longer drawn; the panel shows only what matters (drive bays)
+- **M.2 fully integrated** — M.2 slots render inside the same chassis as HDD bays with tight 8px spacing and the same tray styling; no more separate panel look
+- **Redesigned slot UX** — at-a-glance layout: slot # top-left, SMART ✓/✗ glyph top-right, capacity centred and prominent, 24h temperature sparkline in the middle-bottom, colour-coded temperature label at the bottom; empty bays show a dimmed "Empty" label; hot-spare bays show a blue "SPARE" banner
+- **Multiple clickable regions per bay** — SMART glyph, temperature/sparkline area and the slot body are each wrapped in their own `<g data-entity>` group and open the matching HA more-info dialog (SMART status, temperature entity, drive status entity)
+- **Security section redesign** — collapses to a single green "All security checks passed" row when everything is safe; when issues exist, only the problematic tiles are shown prominently with a "N passed" chip to reveal the safe ones; click any tile to open the security status entity
+
 ### v0.7.0
 - **SVG slot redesign** — slot number top-left (bold, readable), SMART LED top-right with `S` label, capacity centred, sparkline in the lower 40% of the tray (no overlap), temperature bottom-left coloured green / orange / red matching the border
 - **M.2 in same chassis** — single chassis rectangle with divider line and "M.2 NVMe" label; M.2 tiles are 60px tall; labels read `M.2#1` / `M.2#2`
