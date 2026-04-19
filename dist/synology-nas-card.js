@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.8.0
+ * @version 0.8.1
  * @license MIT
  */
 
-const CARD_VERSION = "0.8.0";
+const CARD_VERSION = "0.8.1";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -895,7 +895,7 @@ class SynologyNasCard extends HTMLElement {
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}" data-entity="${info.eid}" style="cursor:pointer">
           ${chassis}
           <text x="${x+5}" y="${y+12}" font-size="${isM2?5:7}" fill="#555" font-family="sans-serif" font-weight="700">${emptyLbl}</text>
-          <text x="${x+w/2}" y="${y+h/2+3}" text-anchor="middle" font-size="${Math.min(9, w*0.18)}" fill="#555" font-family="sans-serif" font-style="italic">${T.empty}</text>
+          <text x="${x+w/2}" y="${y+h/2+3}" text-anchor="middle" font-size="${isM2 ? Math.min(9, h*0.28) : Math.min(9, w*0.18)}" fill="#555" font-family="sans-serif" font-style="italic">${T.empty}</text>
         </g>`;
       }
 
@@ -921,15 +921,15 @@ class SynologyNasCard extends HTMLElement {
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
           <g data-entity="${info.eid}" style="cursor:pointer">${chassis}${slotLbl}</g>
           ${smartGroup}
-          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(10, w*0.2)}" fill="#2196f3" font-family="sans-serif" font-weight="800" letter-spacing="1">SPARE</text>
+          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(11, w*0.22)}" fill="#2196f3" font-family="sans-serif" font-weight="800" letter-spacing="1">SPARE</text>
         </g>`;
       }
 
       // Capacity — centred near top-middle (bigger, readable)
-      const capFontSize = isM2 ? 6.5 : Math.min(10, w * 0.2);
+      const capFontSize = isM2 ? 7 : 10;
       const capY = y + Math.round(h * 0.42);
       const capTxt = info.capacityTxt
-        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#e0e0e0" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
+        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#ffffff" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
         : "";
 
       // Sparkline middle-bottom ~35% of bay, with data-entity on temperature entity
@@ -1879,7 +1879,10 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 
 /* Front Panel */
-/* front-panel-section: no extra styles needed (wrapped by .section parent) */
+.front-panel-section {
+  max-width: 520px;
+  margin: 0 auto;
+}
 .front-panel-wrap {
   width: 100%; overflow-x: auto;
   border-radius: 8px;
@@ -1887,9 +1890,11 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 .front-panel-svg {
   display: block;
-  max-width: 100%;
+  width: 100%;
+  max-width: 520px;
   height: auto;
   min-width: 120px;
+  margin: 0 auto;
   border-radius: 8px;
 }
 .fp-slot { transition: opacity .15s; }
