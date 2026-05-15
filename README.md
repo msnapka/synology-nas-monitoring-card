@@ -163,6 +163,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.9.2
+- **Front panel fills the card width** — removed the leftover 520px max-width cap on the SVG chassis; the panel now scales to the full card width while preserving aspect ratio.
+
 ### v0.9.1
 - **DS1821+ / DS1823xs+ / DS2422+ layout fix** — these chassis are actually single-row landscape boxes (e.g. 8 bays in one horizontal row), not the 2×4 / 2×6 portrait tower the previous release drew. Panel definitions updated to match the real product face; generic 8/12-bay fallbacks updated likewise.
 
