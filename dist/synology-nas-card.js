@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.9.0
+ * @version 0.9.1
  * @license MIT
  */
 
-const CARD_VERSION = "0.9.0";
+const CARD_VERSION = "0.9.1";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -273,27 +273,15 @@ const SYNOLOGY_PANEL_DEFS = {
   "DS1621xs+":{ label: "DS1621xs+", vw: 286, vh: 90,
     drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
 
-  /* ── 8-bay desktop (DS1821+ — realistic 2×4 tower layout) ── */
-  "DS1821+": { label: "DS1821+", vw: 200, vh: 180, m2_max: 2,
-    drives: [
-      ..._makeHddRow(4, 5,  44, 80, 3, 4, 1),
-      ..._makeHddRow(4, 92, 44, 80, 3, 4, 5),
-    ],
-    extras: [] },
-  "DS1823xs+":{ label: "DS1823xs+", vw: 200, vh: 180, m2_max: 2,
-    drives: [
-      ..._makeHddRow(4, 5,  44, 80, 3, 4, 1),
-      ..._makeHddRow(4, 92, 44, 80, 3, 4, 5),
-    ],
-    extras: [] },
+  /* ── 8-bay desktop (DS1821+ — single-row landscape, matches the real chassis face) ── */
+  "DS1821+":  { label: "DS1821+",  vw: 400, vh: 100, m2_max: 2,
+    drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
+  "DS1823xs+":{ label: "DS1823xs+", vw: 400, vh: 100, m2_max: 2,
+    drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
 
-  /* ── 12-bay desktop ── */
-  "DS2422+": { label: "DS2422+", vw: 284, vh: 180,
-    drives: [
-      ..._makeHddRow(4, 5,  44, 80, 3, 6, 1),
-      ..._makeHddRow(4, 92, 44, 80, 3, 6, 7),
-    ],
-    extras: [] },
+  /* ── 12-bay desktop (DS2422+ — single-row landscape) ── */
+  "DS2422+":  { label: "DS2422+", vw: 560, vh: 100,
+    drives: _makeHddRow(22, 8, 42, 84, 3, 12, 1), extras: [] },
 
   /* ── Rack 4U 12-bay ── */
   "RS3621xs+": { label: "RS3621xs+", vw: 400, vh: 60,
@@ -303,8 +291,8 @@ const SYNOLOGY_PANEL_DEFS = {
   "_generic_2": { label: "NAS (2-bay)",  vw: 120, vh: 90, drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
   "_generic_4": { label: "NAS (4-bay)",  vw: 200, vh: 90, m2_max: 0, drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
   "_generic_6": { label: "NAS (6-bay)",  vw: 286, vh: 90, drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
-  "_generic_8": { label: "NAS (8-bay)",  vw: 200, vh: 180, drives: [..._makeHddRow(4,5,44,80,3,4,1),..._makeHddRow(4,92,44,80,3,4,5)], extras: [] },
-  "_generic_12":{ label: "NAS (12-bay)", vw: 284, vh: 180, drives: [..._makeHddRow(4,5,44,80,3,6,1),..._makeHddRow(4,92,44,80,3,6,7)], extras: [] },
+  "_generic_8": { label: "NAS (8-bay)",  vw: 400, vh: 100, drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
+  "_generic_12":{ label: "NAS (12-bay)", vw: 560, vh: 100, drives: _makeHddRow(22, 8, 42, 84, 3, 12, 1), extras: [] },
 };
 
 /* Return the best panel definition for a model + detected bay counts.

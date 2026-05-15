@@ -163,6 +163,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.9.1
+- **DS1821+ / DS1823xs+ / DS2422+ layout fix** — these chassis are actually single-row landscape boxes (e.g. 8 bays in one horizontal row), not the 2×4 / 2×6 portrait tower the previous release drew. Panel definitions updated to match the real product face; generic 8/12-bay fallbacks updated likewise.
+
 ### v0.9.0
 - **Open DSM moved to header** — the "Open DSM" link sits in the top-right of the card next to the health status badge, where it's actually expected; removed from the footer to avoid duplication
 - **Chassis frame redesigned** — the SVG front panel now reads as a real NAS box: a top header band with the "Synology" wordmark and three status LEDs (PWR / STAT / DISK; the STAT LED reflects the worst current issue severity), a subtle gradient on the chassis body, and a bottom band with the model label
