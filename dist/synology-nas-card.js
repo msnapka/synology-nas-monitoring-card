@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.8.1
+ * @version 0.9.0
  * @license MIT
  */
 
-const CARD_VERSION = "0.8.1";
+const CARD_VERSION = "0.9.0";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -983,18 +983,59 @@ class SynologyNasCard extends HTMLElement {
       ).join("");
     }
 
-    const totalH = m2Height > 0 ? vh + m2Height : vh;
+    const baysH = m2Height > 0 ? vh + m2Height : vh;
 
-    /* Extras (LEDs / USB / power button) — removed in v0.8.0 for visual cleanliness */
+    /* Chassis frame — header (Synology brand + status LEDs) and footer (model label + power LED)
+       wrap the bay area so the card visually reads as a real NAS box, not a grid of tiles. */
+    const headerH = 16;
+    const footerH = 12;
+    const totalH  = headerH + baysH + footerH;
+
+    // Overall status colour for the "STATUS" LED (mirrors the badge in the card header)
+    const issuesNow = this._collectIssues?.() || [];
+    const hasCritical = issuesNow.some((i) => i.severity === "critical");
+    const hasWarning  = issuesNow.some((i) => i.severity === "warning");
+    const statusLed   = hasCritical ? "#f44336" : hasWarning ? "#ff9800" : "#4caf50";
+
+    const brand = `<text x="6" y="11" font-size="7.5" fill="#cfcfcf" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.8">Synology</text>`;
+    // LED row top-right: POWER, STATUS, DISK (always-on power, status from issues, disk activity green)
+    const ledY = 7.5;
+    const ledR = 1.6;
+    const ledX0 = vw - 6;
+    const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 6.5}" text-anchor="middle" font-size="3.5" fill="#666" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
+    const ledDot   = (x, color) => `<circle cx="${x}" cy="${ledY}" r="${ledR}" fill="${color}"><animate attributeName="opacity" values="1;0.55;1" dur="3s" repeatCount="indefinite"/></circle>`;
+    const leds = `
+      ${ledDot(ledX0,        "#4caf50")} ${ledLabel(ledX0,        "PWR")}
+      ${ledDot(ledX0 - 12,   statusLed)} ${ledLabel(ledX0 - 12,   "STAT")}
+      ${ledDot(ledX0 - 24,   "#4caf50")} ${ledLabel(ledX0 - 24,   "DISK")}`;
+
+    const modelLbl = `<text x="${vw/2}" y="${totalH - 4}" text-anchor="middle" font-size="5.5" fill="#777" font-family="sans-serif" letter-spacing="0.6" font-weight="600">${panelDef.label}</text>`;
 
     return `<div class="section front-panel-section">
       <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
            role="img" aria-label="${panelDef.label} front panel">
-        <!-- Unified chassis: HDDs + M.2 share one frame -->
-        <rect x="0" y="0" width="${vw}" height="${totalH}" rx="6"
-          fill="#141414" stroke="#2a2a2a" stroke-width="1"/>
-        ${driveSvg}
-        ${m2Svg}
+        <defs>
+          <linearGradient id="chassisGrad" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%"   stop-color="#1c1c1c"/>
+            <stop offset="50%"  stop-color="#131313"/>
+            <stop offset="100%" stop-color="#0d0d0d"/>
+          </linearGradient>
+        </defs>
+        <!-- Outer chassis with subtle gradient + soft inner highlight on top edge -->
+        <rect x="0" y="0" width="${vw}" height="${totalH}" rx="7"
+          fill="url(#chassisGrad)" stroke="#2e2e2e" stroke-width="1"/>
+        <rect x="1" y="1" width="${vw - 2}" height="1" rx="1" fill="#3a3a3a" opacity="0.55"/>
+        <!-- Header band: Synology wordmark + status LEDs -->
+        ${brand}${leds}
+        <line x1="3" y1="${headerH}" x2="${vw - 3}" y2="${headerH}" stroke="#262626" stroke-width="0.5"/>
+        <!-- Bays (translated so existing coordinates remain valid) -->
+        <g transform="translate(0, ${headerH})">
+          ${driveSvg}
+          ${m2Svg}
+        </g>
+        <line x1="3" y1="${headerH + baysH}" x2="${vw - 3}" y2="${headerH + baysH}" stroke="#262626" stroke-width="0.5"/>
+        <!-- Footer band: model label -->
+        ${modelLbl}
       </svg>
     </div>`;
   }
@@ -1053,10 +1094,10 @@ class SynologyNasCard extends HTMLElement {
         ${header}
         <div class="security-summary all-safe" id="btn-security-toggle">
           <span class="sec-check">\u2705</span>
-          <span class="sec-msg">${T.sec_all_passed || "All security checks passed"}</span>
+          <span class="sec-msg">${T.sec_all_passed || "All security checks passed"} <span class="sec-count">(${presentTiles.length})</span></span>
           <span class="sec-chevron">${expanded ? "\u25b2" : "\u25bc"}</span>
         </div>
-        ${expanded ? `<div class="security-grid">${tiles.map(renderTile).join("")}</div>` : ""}
+        ${expanded ? `<div class="security-grid">${presentTiles.map(renderTile).join("")}</div>` : ""}
       </div>`;
     }
 
@@ -1075,11 +1116,9 @@ class SynologyNasCard extends HTMLElement {
       </div>`;
     }
 
-    // All missing — fallback to default grid
-    return `<div class="section">
-      ${header}
-      <div class="security-grid">${tiles.map(renderTile).join("")}</div>
-    </div>`;
+    // No attribute present at all — don't pretend the section exists; render nothing.
+    // (a tile that "isn't there" is not a meaningful state for the user, so we skip it)
+    return "";
   }
 
   /* ── collect issues (with severity) ── */
@@ -1265,13 +1304,8 @@ class SynologyNasCard extends HTMLElement {
         </div>
       </div>` : "";
 
-    // Footer
+    // Footer (power controls only \u2014 Open DSM moved to header-top)
     const footerItems = [];
-    if (dsmUrl) {
-      footerItems.push(
-        `<a href="${dsmUrl}" target="_blank" rel="noopener noreferrer" class="dsm-link">\ud83c\udf10 ${T.open_dsm}</a>`
-      );
-    }
     if (this._config.show_power) {
       footerItems.push(`<div class="power-row">
         <button class="power-lock-btn ${this._powerUnlocked ? "unlocked" : ""}" id="btn-power-lock"
@@ -1299,19 +1333,21 @@ class SynologyNasCard extends HTMLElement {
       <div class="card-header">
         <div class="header-top">
           <span class="nas-name">${cardName}</span>
-          <span class="overall-status status-${worst}" id="status-badge">
-            ${worst === "ok"       ? `\ud83d\udfe2 ${T.healthy}`
-              : worst === "info"   ? `\u2139\ufe0f ${nInfo} info`
-              : worst === "warning"? `\u26a0\ufe0f ${nCritical + nWarning} ${T.issue_detected}`
-              :                      `\ud83d\udd34 ${nCritical} ${T.issue_detected}`}
-            ${issues.length ? `<span class="expand-hint">${this._issuesOpen ? "\u25b2" : "\u25bc"}</span>` : ""}
-          </span>
+          <div class="header-actions">
+            ${dsmUrl ? `<a href="${dsmUrl}" target="_blank" rel="noopener noreferrer" class="dsm-link-inline" title="${T.open_dsm}">\ud83c\udf10 ${T.open_dsm}</a>` : ""}
+            <span class="overall-status status-${worst}" id="status-badge">
+              ${worst === "ok"       ? `\ud83d\udfe2 ${T.healthy}`
+                : worst === "info"   ? `\u2139\ufe0f ${nInfo} info`
+                : worst === "warning"? `\u26a0\ufe0f ${nCritical + nWarning} ${T.issue_detected}`
+                :                      `\ud83d\udd34 ${nCritical} ${T.issue_detected}`}
+              ${issues.length ? `<span class="expand-hint">${this._issuesOpen ? "\u25b2" : "\u25bc"}</span>` : ""}
+            </span>
+          </div>
         </div>
         ${issuesPanel}
         <div class="header-sub">
           ${dsmDisplay ? `<span class="dsm-ver" data-entity="update.${p}_dsm_update">DSM ${dsmDisplay}</span>` : ""}
           ${hasUpd ? `<button class="update-badge" id="btn-install-update" title="${T.install_update}">\u2b06\ufe0f ${dsmLatest}</button>` : ""}
-          ${dsmUrl ? `<a href="${dsmUrl}" target="_blank" rel="noopener noreferrer" class="dsm-link-inline">\ud83c\udf10 ${T.open_dsm}</a>` : ""}
         </div>
         ${uptime ? `<div class="header-sub uptime-line"><span class="uptime-txt">${T.uptime} ${uptime}</span></div>` : ""}
         ${bootStr ? `
@@ -1539,6 +1575,11 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .nas-name {
   font-size: 1.3em; font-weight: 700; color: var(--primary-text-color);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1;
+}
+.header-actions {
+  display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .overall-status {
   font-size: .85em; font-weight: 600; padding: 4px 12px; border-radius: 12px;
@@ -1779,12 +1820,26 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   font-size: .7em; color: var(--secondary-text-color);
 }
 
-/* Memory */
-.info-grid { display: flex; flex-direction: column; gap: 2px; }
-.info-item { display: flex; justify-content: space-between; padding: 4px 10px; font-size: .82em; border-radius: 4px; }
+/* Memory — dotted leader between label and value so the eye can track the row across width */
+.info-grid {
+  display: flex; flex-direction: column; gap: 2px;
+  max-width: 460px;
+}
+.info-item {
+  display: flex; align-items: baseline; gap: 6px;
+  padding: 4px 10px; font-size: .82em; border-radius: 4px;
+}
+.info-item::after {
+  content: ""; flex: 1; align-self: end; margin-bottom: 5px;
+  border-bottom: 1px dotted color-mix(in srgb, var(--secondary-text-color, #888) 55%, transparent);
+  order: 2; min-width: 12px;
+}
 .info-item:nth-child(odd) { background: color-mix(in srgb, var(--primary-text-color) 3%, transparent); }
-.info-label { color: var(--secondary-text-color); }
-.info-value { font-weight: 600; color: var(--primary-text-color); }
+.info-label { color: var(--secondary-text-color); order: 1; }
+.info-value {
+  font-weight: 600; color: var(--primary-text-color); order: 3;
+  font-variant-numeric: tabular-nums;
+}
 
 /* Security */
 .security-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
@@ -1814,8 +1869,13 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   transition: background .2s;
 }
 .security-summary:hover { background: color-mix(in srgb, var(--success-color,#4caf50) 20%, transparent); }
+.security-summary.all-missing {
+  background: color-mix(in srgb, var(--secondary-text-color, #888) 10%, transparent);
+  color: var(--secondary-text-color); cursor: default; font-weight: 500;
+}
 .security-summary .sec-check { font-size: 1.1em; }
 .security-summary .sec-msg { flex: 1; }
+.security-summary .sec-count { opacity: .7; font-weight: 400; margin-left: 2px; }
 .security-summary .sec-chevron { opacity: .7; font-size: .85em; }
 .security-passed-chip {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;

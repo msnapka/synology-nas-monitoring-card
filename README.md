@@ -163,6 +163,13 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.9.0
+- **Open DSM moved to header** — the "Open DSM" link sits in the top-right of the card next to the health status badge, where it's actually expected; removed from the footer to avoid duplication
+- **Chassis frame redesigned** — the SVG front panel now reads as a real NAS box: a top header band with the "Synology" wordmark and three status LEDs (PWR / STAT / DISK; the STAT LED reflects the worst current issue severity), a subtle gradient on the chassis body, and a bottom band with the model label
+- **Security Advisor no longer shows ghost tiles** — when the overall summary is "All security checks passed", expanding only shows tiles that actually have data (no more confusing `—` placeholders for attributes the integration didn't expose); shows the count of present checks in the summary line
+- **Security Advisor empty-state** — when *no* security attributes are exposed at all (Security Advisor never run in DSM), the section shows a single explanatory row instead of six dashed tiles
+- **Memory rows readable across width** — added a dotted leader between each label and value and capped the row width, so on wide cards the eye can still track which value belongs to which label
+
 ### v0.8.0
 - **Auto-detect DSM URL** — the "Open DSM" link now auto-resolves from the HA device registry's `configuration_url` if no `dsm_url` is set in the card config
 - **DS1821+ realistic 2×4 layout** — drive bays rendered in the actual tower arrangement (2 rows × 4 columns, portrait-ish panel) instead of a single 1×8 strip; other multi-row models updated to match
