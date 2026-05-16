@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.1
+ * @version 0.12.2
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.1";
+const CARD_VERSION = "0.12.2";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -811,10 +811,11 @@ class SynologyNasCard extends HTMLElement {
       const isNormal   = ["normal","initialized"].includes(stat);
       const isError    = !isEmpty && !isHotSpare && !isNormal;
 
-      // Additional alarm conditions raised by the integration's per-drive binary sensors.
-      // hasAlert drives the red outline on the bay door (chassis "problem light").
-      const badSect  = (this._s(this._e(`${pfx}_${slot}_exceeded_max_bad_sectors`)) || "").toLowerCase() === "on";
-      const lowLife  = (this._s(this._e(`${pfx}_${slot}_below_min_remaining_life`)) || "").toLowerCase() === "on";
+      // Additional alarm conditions raised by the integration's per-drive binary sensors
+      // (note: these live under binary_sensor.*, hence _b, not _e). hasAlert drives the
+      // red outline on the bay door (chassis "problem light").
+      const badSect  = (this._s(this._b(`${pfx}_${slot}_exceeded_max_bad_sectors`)) || "").toLowerCase() === "on";
+      const lowLife  = (this._s(this._b(`${pfx}_${slot}_below_min_remaining_life`)) || "").toLowerCase() === "on";
       const smartBad = smart && smart !== "normal" && smart !== "unknown" && smart !== "unavailable";
       const hasAlert = !isEmpty && !isHotSpare && (isError || smartBad || badSect || lowLife);
 

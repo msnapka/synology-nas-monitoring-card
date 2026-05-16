@@ -169,6 +169,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.2
+- **Bay alarm now checks the right entity domain.** The new "drive has problem" detection in v0.12.0 was using `_e` (sensor.*) for the `exceeded_max_bad_sectors` / `below_min_remaining_life` lookups, but those are `binary_sensor.*` entities — `_b`. Fixed.
+
 ### v0.12.1
 - **Chassis fills full card width** — the 720 px cap from v0.10.1 is gone. To keep the lock / reboot overlay buttons proportional at any width, the chassis frame is now a CSS container, and the buttons size/space themselves off the chassis width with `cqi` units (clamped 22–44 px tall).
 - **Lock and reboot buttons now properly centred** — switched the buttons from `inline-flex` to `display: grid; place-items: center`, which places the SVG icon dead-centre regardless of the glyph's bounding box. No more "reboot looks higher than lock".
