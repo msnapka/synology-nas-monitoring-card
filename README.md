@@ -169,6 +169,10 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.6
+- **CPU sparkline range tightened to 0..1 load** — at 0..cpu_cores (the v0.12.5 choice), a normal idle reading of 0.02 sat invisibly on the bottom edge. A NAS rarely runs above one core worth of work; clamping at 1.0 keeps the line readable for the common case while still anchoring noise.
+- **Load-avg row no longer hugs the temperature sparkline above it** — was a -6 px top margin (a leftover from before sparklines existed under the gauges); switched to a positive 10 px so the row reads as its own thing.
+
 ### v0.12.5
 - **Top-row sparklines anchored to fixed Y ranges** so half-percent / hundredth-of-a-load noise no longer renders as wild swings.
   - **CPU load**: 0 → `cpu_cores` (load above the core count is oversubscription — the interesting top of the scale).

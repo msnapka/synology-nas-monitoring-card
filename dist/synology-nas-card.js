@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.5
+ * @version 0.12.6
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.5";
+const CARD_VERSION = "0.12.6";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -1410,9 +1410,11 @@ class SynologyNasCard extends HTMLElement {
           { yellow: this._config.thresholds.cpu_yellow ?? cores * 0.7,
             red:    this._config.thresholds.cpu_red    ?? cores * 1.0 },
           2, this._e("cpu_load_average_15_min"),
-          /* Fixed range 0..cores: load above #cores means oversubscribed CPU, that's the
-             interesting top of the scale; below 0 is impossible. */
-          this._sparkline(this._e("cpu_load_average_15_min"), "var(--primary-color,#03a9f4)", 0, cores))}
+          /* Fixed range 0..1: an idle/normal NAS sits well under one-core worth of load,
+             so 0..1 keeps the line visible while still anchoring out small noise.
+             Anything above 1 (oversubscribed) clamps to the top — the gauge already shouts
+             via colour when that happens. */
+          this._sparkline(this._e("cpu_load_average_15_min"), "var(--primary-color,#03a9f4)", 0, 1))}
         ${this._gauge(mem, 100, T.ram, "%",
           { yellow: this._config.thresholds.ram_yellow ?? 70,
             red:    this._config.thresholds.ram_red    ?? 90 },
@@ -1747,7 +1749,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 /* Load average row */
 .load-row {
   display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
-  gap: 10px; margin: -6px 0 8px; font-size: .8em;
+  gap: 10px; margin: 10px 0 8px; font-size: .8em;
   color: var(--secondary-text-color);
 }
 .load-label { font-weight: 600; }
