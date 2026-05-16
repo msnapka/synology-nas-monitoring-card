@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.2
+ * @version 0.12.3
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.2";
+const CARD_VERSION = "0.12.3";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -2005,8 +2005,8 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .fp-slot:hover { opacity: .8; cursor: pointer; }
 
 /* Power overlay — sits over the chassis header band at top-center.
-   `top` and button height are container-query units so the overlay matches the
-   header-band height regardless of how wide the chassis renders. */
+   Top offset and button height are container-query units so the overlay
+   matches the header-band height regardless of how wide the chassis renders. */
 .front-panel-power-overlay {
   position: absolute;
   top: clamp(3px, 1cqi, 8px);

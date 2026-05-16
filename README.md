@@ -169,6 +169,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.3
+- **Critical fix: stray backticks in a CSS comment broke the JS template literal**, which made the whole card fail to parse (`Uncaught SyntaxError: Unexpected identifier 'top'`) and Lovelace showed "Configuration error". The CSS is emitted from inside a JS backtick-delimited template literal, so backticks inside CSS comments end the string prematurely. Removed.
+
 ### v0.12.2
 - **Bay alarm now checks the right entity domain.** The new "drive has problem" detection in v0.12.0 was using `_e` (sensor.*) for the `exceeded_max_bad_sectors` / `below_min_remaining_life` lookups, but those are `binary_sensor.*` entities — `_b`. Fixed.
 
