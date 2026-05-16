@@ -163,6 +163,11 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.11.0
+- **Drive bays redrawn as actual bay doors** — gone is the bright green/red bordered UI grid; bays are now matte black plastic doors with a subtle top-edge highlight, a tiny status LED at the top-right (instead of a big ✓/✗ glyph), and a finger-pull groove at the bottom front, matching the real DS1821+ chassis.
+- **Status conveyed by a tiny LED + thin temp strip** — no more colouring the whole bay frame red/orange when a drive is warm; the door stays dark and a thin coloured strip lights up along its bottom edge. Reads like an indicator light on a real chassis.
+- **Capacity / temperature label restyled** — smaller, less shouty, temperature centred just above the finger-pull rather than crowding the bottom-left corner.
+
 ### v0.10.1
 - **Header pills truly identical** — `Open DSM` and `Healthy` now share one shared box-model rule (same height 26 px, same padding, radius, line-height, flex centring); they render as a matched pair regardless of emoji metrics.
 - **Power-button icons swapped from emoji to inline SVG** — lock/unlock, reboot and shutdown glyphs now render uniformly across browsers and OSes instead of relying on the platform emoji font.

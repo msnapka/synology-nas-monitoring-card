@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.10.1
+ * @version 0.11.0
  * @license MIT
  */
 
-const CARD_VERSION = "0.10.1";
+const CARD_VERSION = "0.11.0";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -868,78 +868,101 @@ class SynologyNasCard extends HTMLElement {
                       : "#4caf50";
       const sparkColor = (info.temp !== null && info.temp >= driveTempWarn) ? "#ffb300" : "#03a9f4";
 
-      // Chassis rect + tray
-      const chassis = `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="4"
-          fill="#111" stroke="${info.borderStroke}" stroke-width="1.5"/>
-        <rect x="${x+1.5}" y="${y+1.5}" width="${w-3}" height="${h-3}" rx="2.5" fill="${info.trayFill}"/>`;
+      // Drive bay door — matte black plastic look, no UI-grid coloured borders.
+      // Door fill is dark regardless of status (only a tiny LED + a thin temp strip carry status);
+      // tempStrip is a thin warning bar at the door bottom edge; tempStrip + finger-pull come below.
+      const doorFill = info.isEmpty    ? "#080808"
+                     : info.isHotSpare ? "#0e1218"
+                     : info.isError    ? "#1a0d0d"
+                                       : "#141414";
+      let tempStrip = "";
+      if (!info.isEmpty && info.temp !== null) {
+        if (info.temp >= driveTempHot)
+          tempStrip = `<rect x="${x+2}" y="${y+h-2.5}" width="${w-4}" height="1.2" rx="0.4" fill="#f44336" opacity="0.85"/>`;
+        else if (info.temp >= driveTempWarn)
+          tempStrip = `<rect x="${x+2}" y="${y+h-2.5}" width="${w-4}" height="1.2" rx="0.4" fill="#ff9800" opacity="0.75"/>`;
+      }
+      // Finger-pull groove at the bottom front of the door (matches a real DS bay)
+      const pullW = Math.max(8, w * 0.42);
+      const pullH = isM2 ? 1.4 : 2.2;
+      const pullX = x + (w - pullW) / 2;
+      const pullY = y + h - pullH - 4.5;
+      const pull = `
+        <rect x="${pullX}" y="${pullY}" width="${pullW}" height="${pullH}" rx="${pullH/2}" fill="#040404"/>
+        <rect x="${pullX + 0.5}" y="${pullY + 0.3}" width="${pullW - 1}" height="0.5" rx="0.25" fill="#2c2c2c" opacity="0.5"/>`;
+      // Door chassis: dark plastic + subtle top-edge highlight + optional warning strip
+      const chassis = `
+        <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2.5" fill="${doorFill}" stroke="#000" stroke-width="0.4"/>
+        <rect x="${x+0.6}" y="${y+0.6}" width="${w-1.2}" height="1.4" rx="0.5" fill="#2c2c2c" opacity="0.45"/>
+        ${tempStrip}`;
 
-      // Empty bay — simple label, still clickable to status entity
+      // Empty bay — dark door + small slot number top-left + "Empty" centred + finger-pull
       if (info.isEmpty) {
-        const emptyLbl = isM2 ? "M.2" : `#${slot}`;
+        const emptyLbl = isM2 ? "M.2" : `${slot}`;
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}" data-entity="${info.eid}" style="cursor:pointer">
           ${chassis}
-          <text x="${x+5}" y="${y+12}" font-size="${isM2?5:7}" fill="#555" font-family="sans-serif" font-weight="700">${emptyLbl}</text>
-          <text x="${x+w/2}" y="${y+h/2+3}" text-anchor="middle" font-size="${isM2 ? Math.min(9, h*0.28) : Math.min(9, w*0.18)}" fill="#555" font-family="sans-serif" font-style="italic">${T.empty}</text>
+          <text x="${x+4}" y="${y+9}" font-size="${isM2?4.5:5.5}" fill="#3f3f3f" font-family="sans-serif" font-weight="600">${emptyLbl}</text>
+          <text x="${x+w/2}" y="${y+h/2}" text-anchor="middle" font-size="${isM2 ? Math.min(7, h*0.24) : Math.min(7, w*0.15)}" fill="#3f3f3f" font-family="sans-serif" font-style="italic">${T.empty}</text>
+          ${pull}
         </g>`;
       }
 
-      // Slot label top-left (e.g. "#1" or "M.2#1")
-      const lblText = isM2 ? `M.2#${slot}` : `#${slot}`;
-      const lblFontSize = isM2 ? 5.5 : 7;
-      const slotLbl = `<text x="${x+5}" y="${y+11}" font-size="${lblFontSize}" fill="#d0d0d0" font-family="sans-serif" font-weight="700">${lblText}</text>`;
+      // Slot label top-left — small drive number, no "#" (real DS bays just have a digit)
+      const lblText = isM2 ? `M.2/${slot}` : `${slot}`;
+      const slotLbl = `<text x="${x+4}" y="${y+9}" font-size="${isM2 ? 5 : 6.5}" fill="#9a9a9a" font-family="sans-serif" font-weight="600">${lblText}</text>`;
 
-      // Top-right: SMART indicator (✓ / ✗ / — ) + data-entity wrapped
-      let smartGlyph = "—", smartColor = "#888";
-      if (info.smart === "normal")                                          { smartGlyph = "\u2713"; smartColor = "#4caf50"; }
-      else if (info.smart && info.smart !== "unknown" && info.smart !== "unavailable") { smartGlyph = "\u2717"; smartColor = "#f44336"; }
-      const smartX = x + w - 5;
-      const smartY = y + 11;
+      // SMART status as a tiny LED at top-right (with a faint glow ring)
+      let smartLedColor = "#4caf50"; // default green when no SMART data
+      if (info.smart === "normal")                                                     smartLedColor = "#4caf50";
+      else if (info.smart && info.smart !== "unknown" && info.smart !== "unavailable") smartLedColor = "#f44336";
+      const ledX = x + w - 4.5;
+      const ledY = y + 6;
       const smartEid = info.smid && this._hass?.states[info.smid] ? info.smid : info.eid;
       const smartGroup = `<g data-entity="${smartEid}" style="cursor:pointer">
-        <rect x="${smartX - 14}" y="${smartY - 9}" width="16" height="11" fill="transparent"/>
-        <text x="${smartX}" y="${smartY}" text-anchor="end" font-size="${isM2?6:8}" fill="${smartColor}" font-family="sans-serif" font-weight="700">${smartGlyph}</text>
+        <rect x="${ledX - 6}" y="${ledY - 4}" width="10" height="8" fill="transparent"/>
+        <circle cx="${ledX}" cy="${ledY}" r="2.4" fill="${smartLedColor}" opacity="0.18"/>
+        <circle cx="${ledX}" cy="${ledY}" r="1.3" fill="${smartLedColor}"/>
       </g>`;
 
-      // Hot spare — show "SPARE" banner prominently, skip capacity/sparkline clutter
+      // Hot spare — quiet "SPARE" label + finger-pull
       if (info.isHotSpare) {
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
           <g data-entity="${info.eid}" style="cursor:pointer">${chassis}${slotLbl}</g>
           ${smartGroup}
-          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(11, w*0.22)}" fill="#2196f3" font-family="sans-serif" font-weight="800" letter-spacing="1">SPARE</text>
+          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(10, w*0.2)}" fill="#3a86ff" font-family="sans-serif" font-weight="700" letter-spacing="1">SPARE</text>
+          ${pull}
         </g>`;
       }
 
-      // Capacity — centred near top-middle (bigger, readable)
-      const capFontSize = isM2 ? 7 : 10;
-      const capY = y + Math.round(h * 0.42);
+      // Capacity — centred, smaller & less shouty than before
+      const capFontSize = isM2 ? 6 : 8.5;
+      const capY = y + Math.round(h * 0.38);
       const capTxt = info.capacityTxt
-        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#ffffff" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
+        ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#dcdcdc" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
         : "";
 
-      // Sparkline middle-bottom ~35% of bay, with data-entity on temperature entity
-      const sparkPadTop = 3, sparkBottomPad = 13;
-      const sparkH = Math.max(8, Math.round(h * 0.34));
+      // Sparkline middle area; fixed 15..50 °C so half-degree drift doesn't become a spike
+      const sparkPadTop = 2, sparkBottomPad = 16;
+      const sparkH = Math.max(7, Math.round(h * 0.28));
       const sparkY = y + h - sparkH - sparkBottomPad;
-      // Fixed Y range 15..50 °C — half-degree noise no longer becomes a visual spike;
-      // real-world drive temps virtually never sit outside this band, so the line is honest.
       const sparkPath = this._sparklineSVGPath(info.tid, x + 4, sparkY + sparkPadTop, w - 8, sparkH - sparkPadTop, sparkColor, 15, 50);
-      // Temperature text bottom-left
-      const tempStr = info.temp !== null ? `${info.temp}°C` : "—";
-      const tempTxt = `<text x="${x+5}" y="${y+h-4}" font-size="${isM2?6:7}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
+      // Temperature text centred just above the finger-pull
+      const tempStr = info.temp !== null ? `${info.temp}°C` : `—`;
+      const tempTxt = `<text x="${x+w/2}" y="${y+h-9}" text-anchor="middle" font-size="${isM2?5.5:6.5}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
 
       // Temperature/sparkline clickable region = temperature entity
       const tempGroup = `<g data-entity="${info.tid}" style="cursor:pointer">
-        <rect x="${x+2}" y="${sparkY}" width="${w-4}" height="${h - (sparkY - y) - 2}" fill="transparent"/>
+        <rect x="${x+2}" y="${sparkY}" width="${w-4}" height="${h - (sparkY - y) - 4}" fill="transparent"/>
         ${sparkPath}${tempTxt}
       </g>`;
 
-      // Body region (capacity + label) — status entity
+      // Body region (door + label + capacity) — status entity
       const bodyGroup = `<g data-entity="${info.eid}" style="cursor:pointer">
         ${chassis}${slotLbl}${capTxt}
       </g>`;
 
       return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
-        ${bodyGroup}${smartGroup}${tempGroup}
+        ${bodyGroup}${smartGroup}${tempGroup}${pull}
       </g>`;
     };
 
