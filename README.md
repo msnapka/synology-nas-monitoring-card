@@ -169,6 +169,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.4
+- **Power overlay buttons are now actually in the middle of the chassis header band**, not hugging the very top. The previous `top: clamp(3px, 1cqi, 8px)` positioned the overlay at the top of the SVG; the buttons should sit at the centre of the header band, which is a model-specific percentage of the chassis height. Top is now computed inline from `(headerH/2) / totalH * 100%` and the buttons recentre on that point with `translateY(-50%)`.
+
 ### v0.12.3
 - **Critical fix: stray backticks in a CSS comment broke the JS template literal**, which made the whole card fail to parse (`Uncaught SyntaxError: Unexpected identifier 'top'`) and Lovelace showed "Configuration error". The CSS is emitted from inside a JS backtick-delimited template literal, so backticks inside CSS comments end the string prematurely. Removed.
 

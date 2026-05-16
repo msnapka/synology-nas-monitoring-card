@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.3
+ * @version 0.12.4
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.3";
+const CARD_VERSION = "0.12.4";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -1054,8 +1054,12 @@ class SynologyNasCard extends HTMLElement {
     const ICON_UNLOCK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5h2a3 3 0 0 1 6 0v3H5v13h14V9h-5V6a5 5 0 0 0-2-5z"/></svg>`;
     const ICON_REBOOT = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
     const ICON_POWER  = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.97 6.97 0 0 1 19 12a7 7 0 1 1-14 0c0-2.05 1.05-3.85 2.59-4.92L6.17 5.65A8.97 8.97 0 0 0 3 12a9 9 0 1 0 18 0c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
+    // Position the overlay vertically at the centre of the header band. The frame
+    // height tracks the SVG height (vw : totalH aspect), so top:Y% maps directly to a
+    // y-coord in SVG space; we anchor on headerH/2 and recentre with translateY(-50%).
+    const overlayTopPct = ((headerH / 2) / totalH) * 100;
     const powerOverlay = showPower ? `
-      <div class="front-panel-power-overlay">
+      <div class="front-panel-power-overlay" style="top: ${overlayTopPct.toFixed(2)}%;">
         <button class="fp-power-lock ${this._powerUnlocked ? "unlocked" : ""}" id="btn-power-lock"
           title="${this._powerUnlocked ? "Lock" : "Unlock"} power controls">
           ${this._powerUnlocked ? ICON_UNLOCK : ICON_LOCK}
@@ -2009,9 +2013,9 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
    matches the header-band height regardless of how wide the chassis renders. */
 .front-panel-power-overlay {
   position: absolute;
-  top: clamp(3px, 1cqi, 8px);
+  /* top is set inline (header-band centre in % of SVG height); translateY -50% centres on it */
   left: 50%;
-  transform: translateX(-50%);
+  transform: translate(-50%, -50%);
   z-index: 2;
   display: flex; align-items: center; gap: clamp(3px, 0.8cqi, 8px);
 }
