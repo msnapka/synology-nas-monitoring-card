@@ -169,6 +169,12 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.1
+- **Chassis fills full card width** — the 720 px cap from v0.10.1 is gone. To keep the lock / reboot overlay buttons proportional at any width, the chassis frame is now a CSS container, and the buttons size/space themselves off the chassis width with `cqi` units (clamped 22–44 px tall).
+- **Lock and reboot buttons now properly centred** — switched the buttons from `inline-flex` to `display: grid; place-items: center`, which places the SVG icon dead-centre regardless of the glyph's bounding box. No more "reboot looks higher than lock".
+- **LED segment volume bar reverted** to the plain status-coloured progress bar (the LED look turned out to be harder to read, not better).
+- **Font sizes snapped to a single scale** — `.7 / .75 / .8 / .85 / .9 / 1 / 1.2 em`. Removed the .78, .82, .72, 1.1, 1.3 values that were drifting on their own. Visual weight across the card is now consistent.
+
 ### v0.12.0
 - **Alarm bays light up on the chassis.** When a drive has a real problem (status not normal, SMART failure, exceeded bad sectors, or below min remaining life) its bay door now gets a static red outline and a faint red fill tint — the chassis itself signals which bay is the problem, no need to scroll to the issues panel. Static colour, no animation.
 - **Volume bar redrawn as an LED segment strip.** Instead of a plain coloured bar, the volume usage is now shown as a row of discrete "lit" LED cells inside a dark frame, with a subtle top specular highlight. Matches the chassis aesthetic.

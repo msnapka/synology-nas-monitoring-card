@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.0
+ * @version 0.12.1
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.0";
+const CARD_VERSION = "0.12.1";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -1608,7 +1608,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   flex-wrap: wrap; gap: 8px;
 }
 .nas-name {
-  font-size: 1.3em; font-weight: 700; color: var(--primary-text-color);
+  font-size: 1.2em; font-weight: 700; color: var(--primary-text-color);
   min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   flex: 1;
 }
@@ -1670,7 +1670,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .issues-actions { display: flex; justify-content: flex-end; margin-top: 8px; }
 .notify-btn {
   padding: 5px 12px; border: 1px solid var(--divider-color,#ccc); border-radius: 8px;
-  background: transparent; font-size: .78em; cursor: pointer; font-weight: 600;
+  background: transparent; font-size: .8em; cursor: pointer; font-weight: 600;
   color: var(--primary-text-color); transition: background .2s, color .2s, border-color .2s;
 }
 .notify-btn:hover {
@@ -1716,7 +1716,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .gauge { text-align: center; flex: 1; min-width: 80px; }
 .gauge-svg { width: 90px; height: 54px; display: block; margin: 0 auto; }
 .gauge-value {
-  font-size: 1.1em; font-weight: 700; margin-top: -4px;
+  font-size: 1em; font-weight: 700; margin-top: -4px;
   color: var(--primary-text-color); line-height: 1.2;
 }
 .gauge-label { font-size: .75em; color: var(--secondary-text-color); margin-top: 2px; }
@@ -1729,16 +1729,14 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 /* Load average row */
 .load-row {
   display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
-  gap: 10px; margin: -6px 0 8px; font-size: .78em;
+  gap: 10px; margin: -6px 0 8px; font-size: .8em;
   color: var(--secondary-text-color);
 }
 .load-label { font-weight: 600; }
 .load-item { display: inline-flex; align-items: baseline; gap: 3px; }
-.load-key {
-  font-size: .85em; opacity: .7; text-transform: uppercase;
-}
+.load-key { font-size: .85em; opacity: .7; text-transform: uppercase; }
 .load-item { color: var(--primary-text-color); font-weight: 600; }
-.load-cores { opacity: .6; font-size: .9em; }
+.load-cores { opacity: .6; font-size: .85em; }
 
 /* Sections */
 .section {
@@ -1778,7 +1776,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .drive-warnings { font-size: .7em; color: var(--error-color,#f44336); margin-top: 2px; }
 .drive-capacity { font-size: .75em; font-weight: 400; color: var(--secondary-text-color); margin-left: 4px; }
 .expand-model {
-  font-size: .78em; font-weight: 600; color: var(--primary-text-color);
+  font-size: .8em; font-weight: 600; color: var(--primary-text-color);
   padding: 3px 0 5px; border-bottom: 1px solid color-mix(in srgb, var(--divider-color,#e0e0e0) 50%, transparent);
   margin-bottom: 3px;
 }
@@ -1802,7 +1800,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   grid-column: 1 / -1;
   margin-top: 6px; padding: 6px 8px;
   background: color-mix(in srgb, var(--primary-text-color) 3%, transparent);
-  border-radius: 6px; font-size: .72em;
+  border-radius: 6px; font-size: .75em;
   display: flex; flex-direction: column; gap: 3px;
   max-height: 220px; overflow-y: auto;
 }
@@ -1846,47 +1844,12 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--primary-color,#03a9f4);
 }
 .volume-status { font-size: .75em; color: var(--secondary-text-color); text-transform: capitalize; }
-/* Volume bar — LED segment style.
-   Container draws dim "off" cells via a repeating gradient; .volume-bar overlays the
-   "on" cells with the bar's status colour (green / amber / red — set inline). */
+/* Volume bar — plain status-coloured progress bar (LED-segment style was harder to read) */
 .volume-bar-container {
-  height: 14px;
-  border-radius: 3px;
-  overflow: hidden;
-  padding: 1.5px;
-  box-sizing: border-box;
-  border: 1px solid #1a1a1a;
-  background:
-    repeating-linear-gradient(to right,
-      #1c1c1c 0,
-      #1c1c1c 4px,
-      #0a0a0a 4px,
-      #0a0a0a 5px);
-  position: relative;
+  height: 8px; background: var(--divider-color,#e0e0e0);
+  border-radius: 4px; overflow: hidden;
 }
-.volume-bar {
-  height: 100%;
-  /* The solid status colour (passed via inline style:background) underlays;
-     this gradient carves out the dark seams between the "lit" segments. */
-  background-image: repeating-linear-gradient(to right,
-    transparent 0,
-    transparent 4px,
-    rgba(0,0,0,0.65) 4px,
-    rgba(0,0,0,0.65) 5px);
-  border-radius: 1.5px;
-  transition: width .5s ease;
-  position: relative;
-}
-.volume-bar::after {
-  /* Thin top-edge highlight = LED specular */
-  content: "";
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 35%;
-  background: linear-gradient(to bottom, rgba(255,255,255,0.18), transparent);
-  border-radius: 1.5px 1.5px 0 0;
-  pointer-events: none;
-}
+.volume-bar { height: 100%; border-radius: 4px; transition: width .5s ease; }
 .volume-details {
   display: flex; justify-content: space-between; flex-wrap: wrap;
   margin-top: 6px; font-size: .75em; color: var(--secondary-text-color); gap: 4px;
@@ -1903,7 +1866,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 .info-item {
   display: flex; align-items: baseline; gap: 6px;
-  padding: 4px 10px; font-size: .82em; border-radius: 4px;
+  padding: 4px 10px; font-size: .8em; border-radius: 4px;
 }
 .info-item::after {
   content: ""; flex: 1; align-self: end; margin-bottom: 5px;
@@ -1939,7 +1902,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 .security-summary {
   display: flex; align-items: center; gap: 10px; padding: 10px 12px;
-  border-radius: 8px; font-size: .9em; cursor: pointer;
+  border-radius: 8px; font-size: .85em; cursor: pointer;
   background: color-mix(in srgb, var(--success-color,#4caf50) 12%, transparent);
   color: var(--success-color,#4caf50); font-weight: 600;
   transition: background .2s;
@@ -1966,7 +1929,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .security-label { flex: 1; color: var(--primary-text-color); }
 .security-badge { font-size: 1em; }
 .security-detail {
-  display: none; width: 100%; font-size: .85em; margin-top: 4px; padding: 4px 6px;
+  display: none; width: 100%; font-size: .8em; margin-top: 4px; padding: 4px 6px;
   color: var(--secondary-text-color);
   background: color-mix(in srgb, var(--primary-text-color) 5%, transparent);
   border-radius: 4px; font-style: italic;
@@ -2014,18 +1977,15 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--error-color,#f44336);
 }
 
-/* Front Panel — fills the card width up to a sensible cap so HTML overlay buttons
-   (lock / reboot) keep a reasonable visual ratio against the chassis. */
+/* Front Panel — full card width; overlay buttons scale with the chassis via
+   container queries so they stay proportional whether the card is 320 px or 1400 px. */
 .front-panel-section {
-  max-width: 720px;
   margin: 0 auto;
 }
-/* Inner frame: position-relative anchor for the power overlay. Section padding
-   (top border + 12px) sits OUTSIDE this frame, so overlay top:N references the
-   actual chassis SVG top, not the section padding gap. */
 .front-panel-frame {
   position: relative;
-  line-height: 0; /* drop the 4-ish px gap inline-svg leaves below itself */
+  line-height: 0;          /* drop the inline-svg baseline gap */
+  container-type: inline-size;  /* let .fp-power-* size off this container's width */
 }
 .front-panel-wrap {
   width: 100%; overflow-x: auto;
@@ -2043,29 +2003,38 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .fp-slot { transition: opacity .15s; }
 .fp-slot:hover { opacity: .8; cursor: pointer; }
 
-/* Power overlay — sits over the chassis header band at top-center */
+/* Power overlay — sits over the chassis header band at top-center.
+   `top` and button height are container-query units so the overlay matches the
+   header-band height regardless of how wide the chassis renders. */
 .front-panel-power-overlay {
   position: absolute;
-  top: 4px;
+  top: clamp(3px, 1cqi, 8px);
   left: 50%;
   transform: translateX(-50%);
   z-index: 2;
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: clamp(3px, 0.8cqi, 8px);
 }
 .fp-power-lock, .fp-power-btn {
-  height: 24px;
-  min-width: 30px;
-  padding: 0 8px;
-  border-radius: 6px;
+  /* Grid + place-items absolutely centres the SVG icon regardless of glyph metrics */
+  display: grid;
+  place-items: center;
+  box-sizing: border-box;
+  height: clamp(22px, 5.5cqi, 44px);
+  min-width: clamp(28px, 7cqi, 56px);
+  padding: 0 clamp(6px, 1.5cqi, 12px);
+  border-radius: clamp(5px, 1.2cqi, 10px);
   border: 1px solid #2c2c2c;
   background: #161616;
   color: #cfcfcf;
   cursor: pointer;
-  display: inline-flex; align-items: center; justify-content: center;
   transition: background .15s, border-color .15s, transform .1s;
-  line-height: 1;
+  line-height: 0;
 }
-.fp-power-lock svg, .fp-power-btn svg { display: block; }
+.fp-power-lock svg, .fp-power-btn svg {
+  display: block;
+  width: clamp(12px, 3cqi, 22px);
+  height: clamp(12px, 3cqi, 22px);
+}
 .fp-power-lock:hover, .fp-power-btn:hover:not(.locked) {
   background: #222;
   border-color: #444;
