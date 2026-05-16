@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.10.0
+ * @version 0.10.1
  * @license MIT
  */
 
-const CARD_VERSION = "0.10.0";
+const CARD_VERSION = "0.10.1";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -975,7 +975,7 @@ class SynologyNasCard extends HTMLElement {
          left-side LEDs (STATUS, DISK, LAN) next to a small "Synology" wordmark,
          a clear power-button area at top-center (HTML overlay sits here),
          model label in the bottom band. */
-    const headerH = 22;
+    const headerH = 30;
     const footerH = 12;
     const totalH  = headerH + baysH + footerH;
 
@@ -985,11 +985,11 @@ class SynologyNasCard extends HTMLElement {
     const hasWarning  = issuesNow.some((i) => i.severity === "warning");
     const statusLed   = hasCritical ? "#f44336" : hasWarning ? "#ff9800" : "#4caf50";
 
-    // "Synology" wordmark, top-left
-    const brand = `<text x="6" y="10" font-size="6" fill="#bdbdbd" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.5">Synology</text>`;
+    // "Synology" wordmark, top-left, vertically centered in the (now taller) header band
+    const brand = `<text x="6" y="${headerH/2 + 2}" font-size="7" fill="#bdbdbd" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.5">Synology</text>`;
 
     // Left-side indicator LEDs (STATUS, DISK, LAN) — small dots with labels under them
-    const ledY = 8;
+    const ledY = headerH / 2 - 3;
     const ledR = 1.4;
     const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 8}" text-anchor="middle" font-size="3" fill="#777" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
     const ledDot   = (x, color) => `<circle cx="${x}" cy="${ledY}" r="${ledR}" fill="${color}"><animate attributeName="opacity" values="1;0.55;1" dur="3s" repeatCount="indefinite"/></circle>`;
@@ -1010,20 +1010,25 @@ class SynologyNasCard extends HTMLElement {
     const modelLbl = `<text x="${vw/2}" y="${totalH - 4}" text-anchor="middle" font-size="5.5" fill="#777" font-family="sans-serif" letter-spacing="0.6" font-weight="600">${panelDef.label}</text>`;
 
     // HTML power overlay (lock + reboot [+ shutdown]) — positioned absolutely at top-center
-    // over the SVG header band. Buttons are sized & styled to fit the chassis bezel.
+    // over the SVG header band. Icons are inline SVG (not emoji) so they render uniformly
+    // across browsers/OS and respect the button colour via currentColor.
+    const ICON_LOCK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H5v13h14V9h-2V6a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V6a3 3 0 0 1 3-3z"/></svg>`;
+    const ICON_UNLOCK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5h2a3 3 0 0 1 6 0v3H5v13h14V9h-5V6a5 5 0 0 0-2-5z"/></svg>`;
+    const ICON_REBOOT = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
+    const ICON_POWER  = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.97 6.97 0 0 1 19 12a7 7 0 1 1-14 0c0-2.05 1.05-3.85 2.59-4.92L6.17 5.65A8.97 8.97 0 0 0 3 12a9 9 0 1 0 18 0c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
     const powerOverlay = showPower ? `
       <div class="front-panel-power-overlay">
         <button class="fp-power-lock ${this._powerUnlocked ? "unlocked" : ""}" id="btn-power-lock"
           title="${this._powerUnlocked ? "Lock" : "Unlock"} power controls">
-          ${this._powerUnlocked ? "🔓" : "🔒"}
+          ${this._powerUnlocked ? ICON_UNLOCK : ICON_LOCK}
         </button>
         <button class="fp-power-btn reboot ${this._powerUnlocked ? "" : "locked"}"
           id="btn-reboot" ${this._powerUnlocked ? "" : "disabled"}
-          title="${T.reboot}">🔄</button>
+          title="${T.reboot}">${ICON_REBOOT}</button>
         ${this._config.show_shutdown ? `
         <button class="fp-power-btn shutdown ${this._powerUnlocked ? "" : "locked"}"
           id="btn-shutdown" ${this._powerUnlocked ? "" : "disabled"}
-          title="${T.shutdown}">⏻</button>` : ""}
+          title="${T.shutdown}">${ICON_POWER}</button>` : ""}
       </div>` : "";
 
     return `<div class="section front-panel-section">
@@ -1108,10 +1113,6 @@ class SynologyNasCard extends HTMLElement {
     if (presentTiles.length > 0 && issueTiles.length === 0) {
       return `<div class="section">
         ${header}
-        <div class="security-summary all-safe">
-          <span class="sec-check">\u2705</span>
-          <span class="sec-msg">${T.sec_all_passed || "All security checks passed"} <span class="sec-count">(${presentTiles.length})</span></span>
-        </div>
         <div class="security-grid">${presentTiles.map(renderTile).join("")}</div>
       </div>`;
     }
@@ -1576,9 +1577,14 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   display: flex; align-items: center; gap: 8px; flex-shrink: 0; flex-wrap: wrap;
   justify-content: flex-end;
 }
-.overall-status {
-  font-size: .85em; font-weight: 600; padding: 4px 12px; border-radius: 12px;
-  user-select: none; transition: background .2s; white-space: nowrap; flex-shrink: 0;
+.overall-status, .dsm-link-inline {
+  /* Identical box model so the two pills read as a pair */
+  font-size: .85em; font-weight: 600;
+  height: 26px; padding: 0 12px; border-radius: 13px;
+  display: inline-flex; align-items: center; gap: 5px;
+  white-space: nowrap; flex-shrink: 0; line-height: 1;
+  user-select: none; transition: background .2s;
+  box-sizing: border-box;
 }
 .overall-status.status-ok {
   background: color-mix(in srgb, var(--success-color,#4caf50) 15%, transparent);
@@ -1654,12 +1660,10 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .uptime-line { margin-top: 2px; }
 .uptime-txt { font-size: .8em; color: var(--secondary-text-color); font-weight: 400; }
 .dsm-link-inline {
-  /* Match .overall-status sizing so the header right side reads as a pair of pills */
-  font-size: .85em; font-weight: 600; padding: 4px 12px; border-radius: 12px;
+  /* Visual variant of .overall-status (sizing is shared above) */
   color: var(--primary-color,#03a9f4);
   background: color-mix(in srgb, var(--primary-color,#03a9f4) 15%, transparent);
-  text-decoration: none; transition: background .15s; white-space: nowrap;
-  display: inline-flex; align-items: center; gap: 4px; line-height: 1;
+  text-decoration: none;
 }
 .dsm-link-inline:hover {
   background: color-mix(in srgb, var(--primary-color,#03a9f4) 22%, transparent);
@@ -1935,8 +1939,10 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--error-color,#f44336);
 }
 
-/* Front Panel — fills the full card width; SVG scales while preserving aspect ratio */
+/* Front Panel — fills the card width up to a sensible cap so HTML overlay buttons
+   (lock / reboot) keep a reasonable visual ratio against the chassis. */
 .front-panel-section {
+  max-width: 720px;
   margin: 0 auto;
   position: relative; /* anchor for the power-overlay HTML */
 }
@@ -1966,19 +1972,19 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   display: flex; align-items: center; gap: 4px;
 }
 .fp-power-lock, .fp-power-btn {
-  height: 22px;
-  min-width: 22px;
-  padding: 0 6px;
+  height: 24px;
+  min-width: 30px;
+  padding: 0 8px;
   border-radius: 6px;
   border: 1px solid #2c2c2c;
   background: #161616;
   color: #cfcfcf;
-  font-size: .8em;
   cursor: pointer;
   display: inline-flex; align-items: center; justify-content: center;
   transition: background .15s, border-color .15s, transform .1s;
   line-height: 1;
 }
+.fp-power-lock svg, .fp-power-btn svg { display: block; }
 .fp-power-lock:hover, .fp-power-btn:hover:not(.locked) {
   background: #222;
   border-color: #444;

@@ -163,6 +163,13 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.10.1
+- **Header pills truly identical** — `Open DSM` and `Healthy` now share one shared box-model rule (same height 26 px, same padding, radius, line-height, flex centring); they render as a matched pair regardless of emoji metrics.
+- **Power-button icons swapped from emoji to inline SVG** — lock/unlock, reboot and shutdown glyphs now render uniformly across browsers and OSes instead of relying on the platform emoji font.
+- **Chassis header taller and overlay buttons bigger** — header band bumped to fit 24 px-tall buttons cleanly on both wide and narrow cards; brand and LEDs re-centred in the new band.
+- **Chassis capped at 720 px wide** — wider than the original 520 px cap (so it actually fills typical dashboard columns), but no longer scales to absurd widths on huge screens, which kept making the HTML overlay buttons look tiny against the chassis.
+- **Security "All passed" banner removed** — when all checks are safe the section now just shows the five green tiles; the redundant green banner above them is gone.
+
 ### v0.10.0
 - **Power controls live on the chassis** — the lock + reboot (+ optional shutdown) buttons are now rendered at the top-center of the SVG front panel, exactly where the physical power button sits on the real DS1821+. Card footer is gone.
 - **Chassis header redesigned** — "Synology" wordmark at top-left, indicator LEDs (STATUS / DISK / LAN) immediately to its right, clear power-button zone in the center; when no power controls are enabled the chassis draws a faint power-button outline instead. Header band height bumped to fit real-size buttons.
