@@ -130,6 +130,12 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ---
 
+## Known limitations
+
+- **Expansion units (DX517, DX1215, DX1222 etc.) are not represented on the chassis SVG.** If your NAS has an expansion bay unit attached, the card still draws only the main chassis and its bays. Drives in the expansion unit appear in the underlying entities (and contribute to volumes), but they are *not* drawn as additional bays on the front panel. Properly handling expansion units would require entity discovery that distinguishes "main NAS drive #N" from "expansion drive #N", plus rendering a second chassis panel beneath the main one — neither is implemented yet. PRs welcome.
+- **Per-model layout fidelity isn't guaranteed.** Drive bay arrangements (`SYNOLOGY_PANEL_DEFS`) were initially generated and are only verified for a handful of models. If your model renders with the wrong orientation or bay count, open an issue with a photo of the front face and ideally a PR updating the panel definition.
+- **Rack-mount (RS) models** are supported only via generic-bay fallbacks; the chassis aesthetic targets desktop DS-series boxes. Rack-mount-shaped chassis (wide, shallow, horizontal-mounted drives) need their own renderer path.
+
 ## Troubleshooting
 
 ### Card not loading
@@ -162,6 +168,11 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 ---
 
 ## Changelog
+
+### v0.12.0
+- **Alarm bays light up on the chassis.** When a drive has a real problem (status not normal, SMART failure, exceeded bad sectors, or below min remaining life) its bay door now gets a static red outline and a faint red fill tint — the chassis itself signals which bay is the problem, no need to scroll to the issues panel. Static colour, no animation.
+- **Volume bar redrawn as an LED segment strip.** Instead of a plain coloured bar, the volume usage is now shown as a row of discrete "lit" LED cells inside a dark frame, with a subtle top specular highlight. Matches the chassis aesthetic.
+- **Known limitations section added to the README**, calling out expansion-unit support, per-model layout fidelity, and rack-mount renderer caveats.
 
 ### v0.11.1
 - **Power-overlay buttons now sit on the chassis header band**, not above it. The overlay was positioned relative to the section (which has section padding-top), so it floated in the gap above the SVG; wrapping the SVG + overlay in an inner `front-panel-frame` makes the overlay anchor to the SVG top instead.

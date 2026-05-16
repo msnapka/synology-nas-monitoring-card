@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.11.1
+ * @version 0.12.0
  * @license MIT
  */
 
-const CARD_VERSION = "0.11.1";
+const CARD_VERSION = "0.12.0";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -811,6 +811,13 @@ class SynologyNasCard extends HTMLElement {
       const isNormal   = ["normal","initialized"].includes(stat);
       const isError    = !isEmpty && !isHotSpare && !isNormal;
 
+      // Additional alarm conditions raised by the integration's per-drive binary sensors.
+      // hasAlert drives the red outline on the bay door (chassis "problem light").
+      const badSect  = (this._s(this._e(`${pfx}_${slot}_exceeded_max_bad_sectors`)) || "").toLowerCase() === "on";
+      const lowLife  = (this._s(this._e(`${pfx}_${slot}_below_min_remaining_life`)) || "").toLowerCase() === "on";
+      const smartBad = smart && smart !== "normal" && smart !== "unknown" && smart !== "unavailable";
+      const hasAlert = !isEmpty && !isHotSpare && (isError || smartBad || badSect || lowLife);
+
       // Tray fill = operational status
       let trayFill;
       if      (isEmpty)     trayFill = "#0d0d0d";
@@ -842,7 +849,7 @@ class SynologyNasCard extends HTMLElement {
         capacityTxt = tb >= 0.95 ? `${tb.toFixed(1)}T` : `${(sizeMB / 1024).toFixed(0)}G`;
       }
 
-      return { isEmpty, isHotSpare, isNormal, isError, trayFill, borderStroke, ledColor, temp,
+      return { isEmpty, isHotSpare, isNormal, isError, hasAlert, trayFill, borderStroke, ledColor, temp,
                eid: sid, tid, smid, smart, capacityTxt };
     };
 
@@ -890,10 +897,17 @@ class SynologyNasCard extends HTMLElement {
       const pull = `
         <rect x="${pullX}" y="${pullY}" width="${pullW}" height="${pullH}" rx="${pullH/2}" fill="#040404"/>
         <rect x="${pullX + 0.5}" y="${pullY + 0.3}" width="${pullW - 1}" height="0.5" rx="0.25" fill="#2c2c2c" opacity="0.5"/>`;
-      // Door chassis: dark plastic + subtle top-edge highlight + optional warning strip
+      // Door chassis: dark plastic + subtle top-edge highlight + optional warning strip.
+      // Bays with an alarm (drive error / SMART fail / bad sectors / low life) get a static
+      // red outline + slightly redder fill so the problem bay is obvious in the chassis.
+      const alertOutline = info.hasAlert
+        ? `<rect x="${x - 0.5}" y="${y - 0.5}" width="${w + 1}" height="${h + 1}" rx="3" fill="none" stroke="#f44336" stroke-width="1" opacity="0.95"/>
+           <rect x="${x + 1.5}" y="${y + 1.5}" width="${w - 3}" height="${h - 3}" rx="1.8" fill="#f44336" opacity="0.07"/>`
+        : "";
       const chassis = `
         <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="2.5" fill="${doorFill}" stroke="#000" stroke-width="0.4"/>
         <rect x="${x+0.6}" y="${y+0.6}" width="${w-1.2}" height="1.4" rx="0.5" fill="#2c2c2c" opacity="0.45"/>
+        ${alertOutline}
         ${tempStrip}`;
 
       // Empty bay — dark door + small slot number top-left + "Empty" centred + finger-pull
@@ -1832,11 +1846,47 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--primary-color,#03a9f4);
 }
 .volume-status { font-size: .75em; color: var(--secondary-text-color); text-transform: capitalize; }
+/* Volume bar — LED segment style.
+   Container draws dim "off" cells via a repeating gradient; .volume-bar overlays the
+   "on" cells with the bar's status colour (green / amber / red — set inline). */
 .volume-bar-container {
-  height: 8px; background: var(--divider-color,#e0e0e0);
-  border-radius: 4px; overflow: hidden;
+  height: 14px;
+  border-radius: 3px;
+  overflow: hidden;
+  padding: 1.5px;
+  box-sizing: border-box;
+  border: 1px solid #1a1a1a;
+  background:
+    repeating-linear-gradient(to right,
+      #1c1c1c 0,
+      #1c1c1c 4px,
+      #0a0a0a 4px,
+      #0a0a0a 5px);
+  position: relative;
 }
-.volume-bar { height: 100%; border-radius: 4px; transition: width .5s ease; }
+.volume-bar {
+  height: 100%;
+  /* The solid status colour (passed via inline style:background) underlays;
+     this gradient carves out the dark seams between the "lit" segments. */
+  background-image: repeating-linear-gradient(to right,
+    transparent 0,
+    transparent 4px,
+    rgba(0,0,0,0.65) 4px,
+    rgba(0,0,0,0.65) 5px);
+  border-radius: 1.5px;
+  transition: width .5s ease;
+  position: relative;
+}
+.volume-bar::after {
+  /* Thin top-edge highlight = LED specular */
+  content: "";
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 35%;
+  background: linear-gradient(to bottom, rgba(255,255,255,0.18), transparent);
+  border-radius: 1.5px 1.5px 0 0;
+  pointer-events: none;
+}
 .volume-details {
   display: flex; justify-content: space-between; flex-wrap: wrap;
   margin-top: 6px; font-size: .75em; color: var(--secondary-text-color); gap: 4px;
