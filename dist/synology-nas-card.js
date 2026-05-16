@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.9.2
+ * @version 0.10.0
  * @license MIT
  */
 
-const CARD_VERSION = "0.9.2";
+const CARD_VERSION = "0.10.0";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -526,18 +526,27 @@ class SynologyNasCard extends HTMLElement {
     return `<span class="trend trend-down">\u2193</span>`;
   }
 
-  /* ── inline SVG sparkline path — returns raw SVG elements for embedding in larger SVG ── */
-  _sparklineSVGPath(entityId, x, y, w, h, color) {
+  /* ── inline SVG sparkline path — returns raw SVG elements for embedding in larger SVG
+       fixedMin/fixedMax (optional) anchor the Y range so the line doesn't auto-stretch on
+       half-degree drift (useful for drive temperatures, e.g. 15..50 °C). */
+  _sparklineSVGPath(entityId, x, y, w, h, color, fixedMin, fixedMax) {
     const pts = this._history?.[entityId];
     if (!pts || pts.length < 2) return "";
-    const vs = pts.map((p) => p.v);
-    let min = Math.min(...vs), max = Math.max(...vs);
-    if (max - min < 0.5) max = min + 1;
+    let min, max;
+    if (fixedMin != null && fixedMax != null) {
+      min = fixedMin; max = fixedMax;
+    } else {
+      const vs = pts.map((p) => p.v);
+      min = Math.min(...vs); max = Math.max(...vs);
+      if (max - min < 0.5) max = min + 1;
+    }
     const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
     const span = Math.max(1, t1 - t0);
     const d = pts.map((p, i) => {
       const px = x + ((p.t - t0) / span) * w;
-      const py = y + h - ((p.v - min) / (max - min)) * h;
+      // Clamp to [0, h] so out-of-range values stay inside the box
+      const yNorm = Math.max(0, Math.min(1, (p.v - min) / (max - min)));
+      const py = y + h - yNorm * h;
       return `${i === 0 ? "M" : "L"} ${px.toFixed(1)} ${py.toFixed(1)}`;
     }).join(" ");
     return `<path d="${d}" fill="none" stroke="${color}" stroke-width="1" stroke-linejoin="round" stroke-linecap="round" opacity="0.7"/>`;
@@ -746,24 +755,15 @@ class SynologyNasCard extends HTMLElement {
     const freeGB  = (totalTB != null && usedTB != null)
       ? ((totalTB - usedTB) * 1024).toFixed(0)
       : "\u2014";
-    const isOpen  = this._openVolumes?.has(i);
-    const stAttrs = this._hass?.states[statusId]?.attributes || {};
-
     let bc = "var(--success-color,#4caf50)";
     if (pct != null) {
       if (pct >= 90)      bc = "var(--error-color,#f44336)";
       else if (pct >= 75) bc = "var(--warning-color,#ff9800)";
     }
 
-    const skipAttrs = new Set([
-      "friendly_name","icon","attribution","device_class","state_class","unit_of_measurement",
-    ]);
-    const extraRows = Object.entries(stAttrs)
-      .filter(([k, v]) => !skipAttrs.has(k) && v !== null && v !== "")
-      .map(([k, v]) => `<div class="expand-row"><span class="expand-key">${k}</span><span class="expand-val">${typeof v === "object" ? JSON.stringify(v) : v}</span></div>`)
-      .join("");
-
-    return `<div class="volume-card ${isOpen ? "open" : ""}" data-volume-id="${i}">
+    // Volume card \u2014 no expand toggle: the status entity doesn't expose anything beyond what's
+    // already in the collapsed view, so the "Details" panel was always empty.
+    return `<div class="volume-card" data-volume-id="${i}">
       <div class="volume-body" data-entity="${usedId}">
         <div class="volume-header">
           <span class="volume-title">\ud83d\udce6 Volume ${i}</span>
@@ -786,10 +786,6 @@ class SynologyNasCard extends HTMLElement {
           ${maxT != null ? `<span>${T.max}: ${maxT}\u00b0C</span>` : ""}
         </div>` : ""}
       </div>
-      <button class="expand-toggle" data-expand-volume="${i}" title="${T.details}">${isOpen ? "\u25b2" : "\u25bc"}</button>
-      ${isOpen ? `<div class="volume-expand">
-        ${extraRows || `<div class="expand-row"><span class="expand-key">\u2014</span></div>`}
-      </div>` : ""}
     </div>`;
   }
 
@@ -924,7 +920,9 @@ class SynologyNasCard extends HTMLElement {
       const sparkPadTop = 3, sparkBottomPad = 13;
       const sparkH = Math.max(8, Math.round(h * 0.34));
       const sparkY = y + h - sparkH - sparkBottomPad;
-      const sparkPath = this._sparklineSVGPath(info.tid, x + 4, sparkY + sparkPadTop, w - 8, sparkH - sparkPadTop, sparkColor);
+      // Fixed Y range 15..50 °C — half-degree noise no longer becomes a visual spike;
+      // real-world drive temps virtually never sit outside this band, so the line is honest.
+      const sparkPath = this._sparklineSVGPath(info.tid, x + 4, sparkY + sparkPadTop, w - 8, sparkH - sparkPadTop, sparkColor, 15, 50);
       // Temperature text bottom-left
       const tempStr = info.temp !== null ? `${info.temp}°C` : "—";
       const tempTxt = `<text x="${x+5}" y="${y+h-4}" font-size="${isM2?6:7}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
@@ -973,31 +971,60 @@ class SynologyNasCard extends HTMLElement {
 
     const baysH = m2Height > 0 ? vh + m2Height : vh;
 
-    /* Chassis frame — header (Synology brand + status LEDs) and footer (model label + power LED)
-       wrap the bay area so the card visually reads as a real NAS box, not a grid of tiles. */
-    const headerH = 16;
+    /* Chassis frame — header band mirrors the real DS1821+ front bezel:
+         left-side LEDs (STATUS, DISK, LAN) next to a small "Synology" wordmark,
+         a clear power-button area at top-center (HTML overlay sits here),
+         model label in the bottom band. */
+    const headerH = 22;
     const footerH = 12;
     const totalH  = headerH + baysH + footerH;
 
-    // Overall status colour for the "STATUS" LED (mirrors the badge in the card header)
+    // Status LED colour mirrors the badge severity in the card header
     const issuesNow = this._collectIssues?.() || [];
     const hasCritical = issuesNow.some((i) => i.severity === "critical");
     const hasWarning  = issuesNow.some((i) => i.severity === "warning");
     const statusLed   = hasCritical ? "#f44336" : hasWarning ? "#ff9800" : "#4caf50";
 
-    const brand = `<text x="6" y="11" font-size="7.5" fill="#cfcfcf" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.8">Synology</text>`;
-    // LED row top-right: POWER, STATUS, DISK (always-on power, status from issues, disk activity green)
-    const ledY = 7.5;
-    const ledR = 1.6;
-    const ledX0 = vw - 6;
-    const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 6.5}" text-anchor="middle" font-size="3.5" fill="#666" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
+    // "Synology" wordmark, top-left
+    const brand = `<text x="6" y="10" font-size="6" fill="#bdbdbd" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.5">Synology</text>`;
+
+    // Left-side indicator LEDs (STATUS, DISK, LAN) — small dots with labels under them
+    const ledY = 8;
+    const ledR = 1.4;
+    const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 8}" text-anchor="middle" font-size="3" fill="#777" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
     const ledDot   = (x, color) => `<circle cx="${x}" cy="${ledY}" r="${ledR}" fill="${color}"><animate attributeName="opacity" values="1;0.55;1" dur="3s" repeatCount="indefinite"/></circle>`;
+    const ledStartX = 58;
+    const ledSpacing = 17;
     const leds = `
-      ${ledDot(ledX0,        "#4caf50")} ${ledLabel(ledX0,        "PWR")}
-      ${ledDot(ledX0 - 12,   statusLed)} ${ledLabel(ledX0 - 12,   "STAT")}
-      ${ledDot(ledX0 - 24,   "#4caf50")} ${ledLabel(ledX0 - 24,   "DISK")}`;
+      ${ledDot(ledStartX,                   statusLed)} ${ledLabel(ledStartX,                  "STATUS")}
+      ${ledDot(ledStartX + ledSpacing,      "#4caf50")} ${ledLabel(ledStartX + ledSpacing,     "DISK")}
+      ${ledDot(ledStartX + ledSpacing * 2,  "#4caf50")} ${ledLabel(ledStartX + ledSpacing * 2, "LAN")}`;
+
+    // Subtle power-button "well" outline at top-center (visible only if no overlay buttons)
+    const showPower = !!this._config.show_power;
+    const powerWell = showPower ? "" : `
+      <circle cx="${vw/2}" cy="${headerH/2}" r="6.5" fill="none" stroke="#2c2c2c" stroke-width="0.8"/>
+      <circle cx="${vw/2}" cy="${headerH/2}" r="3.5" fill="#1a1a1a" stroke="#333" stroke-width="0.5"/>
+      <text x="${vw/2}" y="${headerH/2 + 1.6}" text-anchor="middle" font-size="4" fill="#444">⏻</text>`;
 
     const modelLbl = `<text x="${vw/2}" y="${totalH - 4}" text-anchor="middle" font-size="5.5" fill="#777" font-family="sans-serif" letter-spacing="0.6" font-weight="600">${panelDef.label}</text>`;
+
+    // HTML power overlay (lock + reboot [+ shutdown]) — positioned absolutely at top-center
+    // over the SVG header band. Buttons are sized & styled to fit the chassis bezel.
+    const powerOverlay = showPower ? `
+      <div class="front-panel-power-overlay">
+        <button class="fp-power-lock ${this._powerUnlocked ? "unlocked" : ""}" id="btn-power-lock"
+          title="${this._powerUnlocked ? "Lock" : "Unlock"} power controls">
+          ${this._powerUnlocked ? "🔓" : "🔒"}
+        </button>
+        <button class="fp-power-btn reboot ${this._powerUnlocked ? "" : "locked"}"
+          id="btn-reboot" ${this._powerUnlocked ? "" : "disabled"}
+          title="${T.reboot}">🔄</button>
+        ${this._config.show_shutdown ? `
+        <button class="fp-power-btn shutdown ${this._powerUnlocked ? "" : "locked"}"
+          id="btn-shutdown" ${this._powerUnlocked ? "" : "disabled"}
+          title="${T.shutdown}">⏻</button>` : ""}
+      </div>` : "";
 
     return `<div class="section front-panel-section">
       <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
@@ -1013,8 +1040,8 @@ class SynologyNasCard extends HTMLElement {
         <rect x="0" y="0" width="${vw}" height="${totalH}" rx="7"
           fill="url(#chassisGrad)" stroke="#2e2e2e" stroke-width="1"/>
         <rect x="1" y="1" width="${vw - 2}" height="1" rx="1" fill="#3a3a3a" opacity="0.55"/>
-        <!-- Header band: Synology wordmark + status LEDs -->
-        ${brand}${leds}
+        <!-- Header band: brand, LEDs (left), power-button well (center, hidden when overlay buttons cover it) -->
+        ${brand}${leds}${powerWell}
         <line x1="3" y1="${headerH}" x2="${vw - 3}" y2="${headerH}" stroke="#262626" stroke-width="0.5"/>
         <!-- Bays (translated so existing coordinates remain valid) -->
         <g transform="translate(0, ${headerH})">
@@ -1025,6 +1052,7 @@ class SynologyNasCard extends HTMLElement {
         <!-- Footer band: model label -->
         ${modelLbl}
       </svg>
+      ${powerOverlay}
     </div>`;
   }
 
@@ -1080,12 +1108,11 @@ class SynologyNasCard extends HTMLElement {
     if (presentTiles.length > 0 && issueTiles.length === 0) {
       return `<div class="section">
         ${header}
-        <div class="security-summary all-safe" id="btn-security-toggle">
+        <div class="security-summary all-safe">
           <span class="sec-check">\u2705</span>
           <span class="sec-msg">${T.sec_all_passed || "All security checks passed"} <span class="sec-count">(${presentTiles.length})</span></span>
-          <span class="sec-chevron">${expanded ? "\u25b2" : "\u25bc"}</span>
         </div>
-        ${expanded ? `<div class="security-grid">${presentTiles.map(renderTile).join("")}</div>` : ""}
+        <div class="security-grid">${presentTiles.map(renderTile).join("")}</div>
       </div>`;
     }
 
@@ -1292,28 +1319,8 @@ class SynologyNasCard extends HTMLElement {
         </div>
       </div>` : "";
 
-    // Footer (power controls only \u2014 Open DSM moved to header-top)
-    const footerItems = [];
-    if (this._config.show_power) {
-      footerItems.push(`<div class="power-row">
-        <button class="power-lock-btn ${this._powerUnlocked ? "unlocked" : ""}" id="btn-power-lock"
-          title="${this._powerUnlocked ? "Lock" : "Unlock"} power controls">
-          ${this._powerUnlocked ? "\ud83d\udd13" : "\ud83d\udd12"}
-        </button>
-        <button class="power-btn reboot ${this._powerUnlocked ? "" : "locked"}"
-          id="btn-reboot" ${this._powerUnlocked ? "" : "disabled"}>
-          \ud83d\udd04 ${T.reboot}
-        </button>
-        ${this._config.show_shutdown ? `
-        <button class="power-btn shutdown ${this._powerUnlocked ? "" : "locked"}"
-          id="btn-shutdown" ${this._powerUnlocked ? "" : "disabled"}>
-          \u23fb ${T.shutdown}
-        </button>` : ""}
-      </div>`);
-    }
-    const footerHtml = footerItems.length
-      ? `<div class="card-footer">${footerItems.join("")}</div>`
-      : "";
+    // Footer is now empty \u2014 Open DSM lives in the header, power controls live on the chassis SVG.
+    const footerHtml = "";
 
     /* ── Assemble ── */
     this.shadowRoot.innerHTML = `<style>${this._css()}</style>
@@ -1647,13 +1654,15 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .uptime-line { margin-top: 2px; }
 .uptime-txt { font-size: .8em; color: var(--secondary-text-color); font-weight: 400; }
 .dsm-link-inline {
-  font-size: .75em; font-weight: 600; padding: 1px 8px; border-radius: 8px;
+  /* Match .overall-status sizing so the header right side reads as a pair of pills */
+  font-size: .85em; font-weight: 600; padding: 4px 12px; border-radius: 12px;
   color: var(--primary-color,#03a9f4);
-  background: color-mix(in srgb, var(--primary-color,#03a9f4) 10%, transparent);
+  background: color-mix(in srgb, var(--primary-color,#03a9f4) 15%, transparent);
   text-decoration: none; transition: background .15s; white-space: nowrap;
+  display: inline-flex; align-items: center; gap: 4px; line-height: 1;
 }
 .dsm-link-inline:hover {
-  background: color-mix(in srgb, var(--primary-color,#03a9f4) 20%, transparent);
+  background: color-mix(in srgb, var(--primary-color,#03a9f4) 22%, transparent);
 }
 
 /* Gauges */
@@ -1929,6 +1938,7 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 /* Front Panel — fills the full card width; SVG scales while preserving aspect ratio */
 .front-panel-section {
   margin: 0 auto;
+  position: relative; /* anchor for the power-overlay HTML */
 }
 .front-panel-wrap {
   width: 100%; overflow-x: auto;
@@ -1945,6 +1955,48 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 .fp-slot { transition: opacity .15s; }
 .fp-slot:hover { opacity: .8; cursor: pointer; }
+
+/* Power overlay — sits over the chassis header band at top-center */
+.front-panel-power-overlay {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 2;
+  display: flex; align-items: center; gap: 4px;
+}
+.fp-power-lock, .fp-power-btn {
+  height: 22px;
+  min-width: 22px;
+  padding: 0 6px;
+  border-radius: 6px;
+  border: 1px solid #2c2c2c;
+  background: #161616;
+  color: #cfcfcf;
+  font-size: .8em;
+  cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s, transform .1s;
+  line-height: 1;
+}
+.fp-power-lock:hover, .fp-power-btn:hover:not(.locked) {
+  background: #222;
+  border-color: #444;
+}
+.fp-power-lock.unlocked {
+  background: color-mix(in srgb, var(--warning-color,#ff9800) 25%, #161616);
+  border-color: var(--warning-color,#ff9800);
+}
+.fp-power-btn.locked {
+  opacity: .35;
+  cursor: not-allowed;
+}
+.fp-power-btn.reboot {
+  background: color-mix(in srgb, var(--warning-color,#ff9800) 18%, #161616);
+}
+.fp-power-btn.shutdown {
+  background: color-mix(in srgb, var(--error-color,#f44336) 18%, #161616);
+}
 
 /* Responsive — narrow */
 @media (max-width: 420px) {

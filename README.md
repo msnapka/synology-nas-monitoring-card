@@ -163,6 +163,14 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.10.0
+- **Power controls live on the chassis** — the lock + reboot (+ optional shutdown) buttons are now rendered at the top-center of the SVG front panel, exactly where the physical power button sits on the real DS1821+. Card footer is gone.
+- **Chassis header redesigned** — "Synology" wordmark at top-left, indicator LEDs (STATUS / DISK / LAN) immediately to its right, clear power-button zone in the center; when no power controls are enabled the chassis draws a faint power-button outline instead. Header band height bumped to fit real-size buttons.
+- **Drive temperature sparklines anchored to a fixed 15–50 °C range** — half-degree drift no longer becomes a misleading visual spike; values are clamped to the box so out-of-range readings stay inside the slot.
+- **Security Advisor no longer needs to be expanded** — when all checks are safe, the green summary banner is shown together with the actual tiles inline (the toggle is gone — five items don't deserve a click).
+- **Volume "details" toggle removed** — the panel never had anything useful to show (the volume status entity exposes nothing the collapsed card doesn't already display), so the expand chevron is dropped.
+- **Header pill sizing matched** — "Open DSM" and "Healthy" badges now share the same height, font size and corner radius so the header reads as a pair of equal pills, not a small link next to a big badge.
+
 ### v0.9.2
 - **Front panel fills the card width** — removed the leftover 520px max-width cap on the SVG chassis; the panel now scales to the full card width while preserving aspect ratio.
 
