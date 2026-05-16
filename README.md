@@ -163,6 +163,9 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.11.1
+- **Power-overlay buttons now sit on the chassis header band**, not above it. The overlay was positioned relative to the section (which has section padding-top), so it floated in the gap above the SVG; wrapping the SVG + overlay in an inner `front-panel-frame` makes the overlay anchor to the SVG top instead.
+
 ### v0.11.0
 - **Drive bays redrawn as actual bay doors** — gone is the bright green/red bordered UI grid; bays are now matte black plastic doors with a subtle top-edge highlight, a tiny status LED at the top-right (instead of a big ✓/✗ glyph), and a finger-pull groove at the bottom front, matching the real DS1821+ chassis.
 - **Status conveyed by a tiny LED + thin temp strip** — no more colouring the whole bay frame red/orange when a drive is warm; the door stays dark and a thin coloured strip lights up along its bottom edge. Reads like an indicator light on a real chassis.

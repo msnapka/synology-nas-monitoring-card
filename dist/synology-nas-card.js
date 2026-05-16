@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.11.0
+ * @version 0.11.1
  * @license MIT
  */
 
-const CARD_VERSION = "0.11.0";
+const CARD_VERSION = "0.11.1";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -1055,32 +1055,34 @@ class SynologyNasCard extends HTMLElement {
       </div>` : "";
 
     return `<div class="section front-panel-section">
-      <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
-           role="img" aria-label="${panelDef.label} front panel">
-        <defs>
-          <linearGradient id="chassisGrad" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="0%"   stop-color="#1c1c1c"/>
-            <stop offset="50%"  stop-color="#131313"/>
-            <stop offset="100%" stop-color="#0d0d0d"/>
-          </linearGradient>
-        </defs>
-        <!-- Outer chassis with subtle gradient + soft inner highlight on top edge -->
-        <rect x="0" y="0" width="${vw}" height="${totalH}" rx="7"
-          fill="url(#chassisGrad)" stroke="#2e2e2e" stroke-width="1"/>
-        <rect x="1" y="1" width="${vw - 2}" height="1" rx="1" fill="#3a3a3a" opacity="0.55"/>
-        <!-- Header band: brand, LEDs (left), power-button well (center, hidden when overlay buttons cover it) -->
-        ${brand}${leds}${powerWell}
-        <line x1="3" y1="${headerH}" x2="${vw - 3}" y2="${headerH}" stroke="#262626" stroke-width="0.5"/>
-        <!-- Bays (translated so existing coordinates remain valid) -->
-        <g transform="translate(0, ${headerH})">
-          ${driveSvg}
-          ${m2Svg}
-        </g>
-        <line x1="3" y1="${headerH + baysH}" x2="${vw - 3}" y2="${headerH + baysH}" stroke="#262626" stroke-width="0.5"/>
-        <!-- Footer band: model label -->
-        ${modelLbl}
-      </svg>
-      ${powerOverlay}
+      <div class="front-panel-frame">
+        <svg class="front-panel-svg" viewBox="0 0 ${vw} ${totalH}" xmlns="http://www.w3.org/2000/svg"
+             role="img" aria-label="${panelDef.label} front panel">
+          <defs>
+            <linearGradient id="chassisGrad" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%"   stop-color="#1c1c1c"/>
+              <stop offset="50%"  stop-color="#131313"/>
+              <stop offset="100%" stop-color="#0d0d0d"/>
+            </linearGradient>
+          </defs>
+          <!-- Outer chassis with subtle gradient + soft inner highlight on top edge -->
+          <rect x="0" y="0" width="${vw}" height="${totalH}" rx="7"
+            fill="url(#chassisGrad)" stroke="#2e2e2e" stroke-width="1"/>
+          <rect x="1" y="1" width="${vw - 2}" height="1" rx="1" fill="#3a3a3a" opacity="0.55"/>
+          <!-- Header band: brand, LEDs (left), power-button well (center, hidden when overlay buttons cover it) -->
+          ${brand}${leds}${powerWell}
+          <line x1="3" y1="${headerH}" x2="${vw - 3}" y2="${headerH}" stroke="#262626" stroke-width="0.5"/>
+          <!-- Bays (translated so existing coordinates remain valid) -->
+          <g transform="translate(0, ${headerH})">
+            ${driveSvg}
+            ${m2Svg}
+          </g>
+          <line x1="3" y1="${headerH + baysH}" x2="${vw - 3}" y2="${headerH + baysH}" stroke="#262626" stroke-width="0.5"/>
+          <!-- Footer band: model label -->
+          ${modelLbl}
+        </svg>
+        ${powerOverlay}
+      </div>
     </div>`;
   }
 
@@ -1967,7 +1969,13 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .front-panel-section {
   max-width: 720px;
   margin: 0 auto;
-  position: relative; /* anchor for the power-overlay HTML */
+}
+/* Inner frame: position-relative anchor for the power overlay. Section padding
+   (top border + 12px) sits OUTSIDE this frame, so overlay top:N references the
+   actual chassis SVG top, not the section padding gap. */
+.front-panel-frame {
+  position: relative;
+  line-height: 0; /* drop the 4-ish px gap inline-svg leaves below itself */
 }
 .front-panel-wrap {
   width: 100%; overflow-x: auto;
