@@ -169,6 +169,13 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Changelog
 
+### v0.12.5
+- **Top-row sparklines anchored to fixed Y ranges** so half-percent / hundredth-of-a-load noise no longer renders as wild swings.
+  - **CPU load**: 0 → `cpu_cores` (load above the core count is oversubscription — the interesting top of the scale).
+  - **RAM**: 0 → 100 (it's a percent).
+  - **System temperature**: 15 → 80 °C (idle to dangerously hot).
+  - Out-of-range values are clamped to the box, same as the drive temperature sparklines.
+
 ### v0.12.4
 - **Power overlay buttons are now actually in the middle of the chassis header band**, not hugging the very top. The previous `top: clamp(3px, 1cqi, 8px)` positioned the overlay at the top of the SVG; the buttons should sit at the centre of the header band, which is a model-specific percentage of the chassis height. Top is now computed inline from `(headerH/2) / totalH * 100%` and the buttons recentre on that point with `translateY(-50%)`.
 

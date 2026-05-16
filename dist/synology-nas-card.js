@@ -2,11 +2,11 @@
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
  * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.4
+ * @version 0.12.5
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.4";
+const CARD_VERSION = "0.12.5";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -489,19 +489,28 @@ class SynologyNasCard extends HTMLElement {
     }
   }
 
-  /* ── sparkline SVG from a history series ── */
-  _sparkline(entityId, color) {
+  /* ── sparkline SVG from a history series ──
+       fixedMin/fixedMax (optional) anchor the Y range so the line doesn't auto-stretch
+       on fractional drift; values are clamped into [0, h] so out-of-range points don't
+       leave the box. */
+  _sparkline(entityId, color, fixedMin, fixedMax) {
     const pts = this._history?.[entityId];
     if (!pts || pts.length < 2) return "";
     const w = 90, h = 14;
-    const vs = pts.map((p) => p.v);
-    let min = Math.min(...vs), max = Math.max(...vs);
-    if (max - min < 0.01) { max = min + 1; }
+    let min, max;
+    if (fixedMin != null && fixedMax != null) {
+      min = fixedMin; max = fixedMax;
+    } else {
+      const vs = pts.map((p) => p.v);
+      min = Math.min(...vs); max = Math.max(...vs);
+      if (max - min < 0.01) { max = min + 1; }
+    }
     const t0 = pts[0].t, t1 = pts[pts.length - 1].t;
     const span = Math.max(1, t1 - t0);
     const path = pts.map((p, i) => {
       const x = ((p.t - t0) / span) * w;
-      const y = h - ((p.v - min) / (max - min)) * h;
+      const yNorm = Math.max(0, Math.min(1, (p.v - min) / (max - min)));
+      const y = h - yNorm * h;
       return `${i === 0 ? "M" : "L"} ${x.toFixed(1)} ${y.toFixed(1)}`;
     }).join(" ");
     return `<svg class="sparkline" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none">
@@ -1401,19 +1410,23 @@ class SynologyNasCard extends HTMLElement {
           { yellow: this._config.thresholds.cpu_yellow ?? cores * 0.7,
             red:    this._config.thresholds.cpu_red    ?? cores * 1.0 },
           2, this._e("cpu_load_average_15_min"),
-          this._sparkline(this._e("cpu_load_average_15_min"), "var(--primary-color,#03a9f4)"))}
+          /* Fixed range 0..cores: load above #cores means oversubscribed CPU, that's the
+             interesting top of the scale; below 0 is impossible. */
+          this._sparkline(this._e("cpu_load_average_15_min"), "var(--primary-color,#03a9f4)", 0, cores))}
         ${this._gauge(mem, 100, T.ram, "%",
           { yellow: this._config.thresholds.ram_yellow ?? 70,
             red:    this._config.thresholds.ram_red    ?? 90 },
           0, this._e("memory_usage_real"),
-          this._sparkline(this._e("memory_usage_real"), "var(--accent-color,#ff4081)"))}
+          /* RAM usage is a percentage \u2014 fixed 0..100. */
+          this._sparkline(this._e("memory_usage_real"), "var(--accent-color,#ff4081)", 0, 100))}
         ${this._gauge(temp, 80,
           `${T.temp} ${this._trendArrow(this._e("temperature"), temp, 1)}`,
           "\u00b0C",
           { yellow: this._config.thresholds.temp_yellow ?? 55,
             red:    this._config.thresholds.temp_red    ?? 70 },
           0, this._e("temperature"),
-          this._sparkline(this._e("temperature"), "var(--warning-color,#ff9800)"))}
+          /* System temperature: 15..80 \u00b0C covers everything from cold idle to dangerously hot. */
+          this._sparkline(this._e("temperature"), "var(--warning-color,#ff9800)", 15, 80))}
       </div>
       ${(load1 !== null || load5 !== null || load15 !== null) ? `
       <div class="load-row">
