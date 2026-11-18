@@ -51,6 +51,15 @@ Any Synology NAS supported by the [Synology DSM integration](https://www.home-as
 
 Drive bays, M.2 slots, and volumes are auto-detected from your entities — no manual counting needed.
 
+
+### Hardware knowledge base coverage
+
+The modular hardware knowledge base adds a structured model registry for Synology families, including DiskStation (DS), RackStation (RS), FlashStation (FS), SA, HD, DVA, UC and PAS models. The registry can provide model-specific CPU information (where published), CPU/core/thread counts, architecture, memory technology and internal bay information. The data is used by the card's hardware lookup helpers rather than relying only on a short hand-maintained CPU dictionary.
+
+**Coverage is broad, not exhaustive.** The registry currently contains 128 model records. It should not be interpreted as a complete list of every Synology model, regional SKU or hardware revision ever sold. A missing value is left unknown rather than guessed. Verify the exact model and revision against Synology's own documentation before relying on a value for purchasing, upgrade or capacity decisions.
+
+**Panel geometry has a separate confidence level.** The current panel definitions are schematic layouts. They are useful for arranging the detected bays in the card, but they are not dimensionally accurate or pixel-traced reproductions of each chassis. Generic layouts are fallbacks, not verified physical drawings. See [Known limitations](#known-limitations).
+
 ---
 
 ## Requirements
@@ -75,12 +84,14 @@ Drive bays, M.2 slots, and volumes are auto-detected from your entities — no m
 
 ## Manual Installation
 
-1. Download `synology-nas-card.js` from the [latest release](https://github.com/msnapka/synology-nas-monitoring-card/releases/latest)
-2. Copy to `/config/www/synology-nas-card.js`
-3. Add the resource in HA under **Settings → Dashboards → Resources**:
-   - URL: `/local/synology-nas-card.js`
-   - Type: `JavaScript module`
-4. Reload the browser
+1. Download the **built card release** (`synology-nas-card.js`) from the [latest release](https://github.com/msnapka/synology-nas-monitoring-card/releases/latest).
+2. Copy it to `/config/www/synology-nas-card.js`.
+3. In Home Assistant, open **Settings → Dashboards → Resources** and add:
+   - **URL:** `/local/synology-nas-card.js`
+   - **Resource type:** `JavaScript module`
+4. Save and hard-refresh the browser (`Ctrl+F5`).
+
+The normal release is expected to be a browser-loadable card artifact. If you are working from the modular development source in this repository/package, follow the separate **Modular hardware knowledge base / developer installation** section below. Do not point Home Assistant at an unbundled module entry point unless all its relative imports are deployed beside it and the resource is loaded as a JavaScript module.
 
 ---
 
@@ -103,7 +114,7 @@ dsm_url: https://192.168.1.100:5001
 | `entity_prefix` | string | **required** | Common prefix of your Synology entities (auto-discovered in editor) |
 | `name` | string | *auto* | Display name shown in the card header (auto-derived from prefix if empty) |
 | `dsm_url` | string | — | URL to the Synology DSM web interface (shows "Open DSM" link) |
-| `cpu_cores` | number | `4` | Number of CPU cores — used as the max value for the load-average gauge. Auto-detected from the NAS model when the card is added. |
+| `cpu_cores` | number | `4` | Number of CPU cores — used as the max value for the load-average gauge. The card can auto-detect this from the NAS model when model metadata is available; otherwise the configured/default value is used. |
 | `show_security` | boolean | `true` | Show Security Advisor section |
 | `show_memory` | boolean | `true` | Show memory details |
 | `show_power` | boolean | `false` | Show reboot button (locked by default, requires double confirmation) |
@@ -132,17 +143,74 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 
 ## Known limitations
 
-- **Expansion units (DX517, DX1215, DX1222 etc.) are not represented on the chassis SVG.** If your NAS has an expansion bay unit attached, the card still draws only the main chassis and its bays. Drives in the expansion unit appear in the underlying entities (and contribute to volumes), but they are *not* drawn as additional bays on the front panel. Properly handling expansion units would require entity discovery that distinguishes "main NAS drive #N" from "expansion drive #N", plus rendering a second chassis panel beneath the main one — neither is implemented yet. PRs welcome.
-- **Per-model layout fidelity isn't guaranteed.** Drive bay arrangements (`SYNOLOGY_PANEL_DEFS`) were initially generated and are only verified for a handful of models. If your model renders with the wrong orientation or bay count, open an issue with a photo of the front face and ideally a PR updating the panel definition.
-- **Rack-mount (RS) models** are supported only via generic-bay fallbacks; the chassis aesthetic targets desktop DS-series boxes. Rack-mount-shaped chassis (wide, shallow, horizontal-mounted drives) need their own renderer path.
+- **Hardware catalogue coverage is not exhaustive.** The bundled registry contains 128 model records across several Synology product families. It does not claim to cover every historical model, regional SKU, hardware revision or expansion configuration. Unknown fields are intentionally left unset rather than inferred.
+- **Hardware values should be checked against the exact model.** Synology may use different CPUs, memory configurations or bay arrangements across generations and regional variants. The registry records source references and a verification snapshot date, but it is not a substitute for the product specification for the exact SKU.
+- **Panel geometry is schematic, not dimensionally accurate.** The current `SYNOLOGY_PANEL_DEFS` describe bay arrangement templates. They have not been pixel-traced or calibrated against front-on manufacturer images or CAD drawings for every model. Treat them as visual schematics, not scale drawings. To improve a model, provide a straight-on front image or manufacturer drawing and verify the bay order, orientation and proportions.
+- **Expansion units (DX517, DX1215, DX1222 etc.) are not represented as a separate chassis on the panel.** Drives in expansion units may appear in the underlying entities and contribute to volumes, but the front-panel drawing currently represents the main NAS chassis only. Correct expansion-unit rendering requires distinguishing main-unit drives from expansion-unit drives and drawing a second chassis.
+- **Rack-mount (RS) models** may use generic-bay fallbacks and do not yet have a fully separate rack-chassis renderer. The visual treatment is primarily designed around desktop DS-series enclosures.
+- **M.2 slot counts and physical placement are model-dependent.** A model's M.2 support does not necessarily mean that every slot is externally visible or that an M.2 drive is installed. Confirm the exact model's specification and the card's detected entities.
+
+## Modular hardware knowledge base (developer installation)
+
+The hardware database is maintained as separate ES modules in the development package:
+
+| File | Responsibility |
+|---|---|
+| `synology-hardware-data.js` | Structured model records and source metadata |
+| `synology-layouts.js` | Panel layout definitions and generic layout fallback |
+| `synology-hardware-utils.js` | Model lookup, CPU detection, bay-count helpers and registry validation |
+| `synology-nas-card.module.js` | Integrated card entry point that imports the hardware modules |
+| `INTEGRATION.md` | Integration notes for maintainers |
+
+### Important: source modules versus a release artifact
+
+The modular entry point uses relative ES-module imports. The imported files must be deployed at the relative paths expected by those imports. Merely copying the three data/helper modules into `/config/www` does not make the existing classic single-file card use them.
+
+There are two valid deployment approaches:
+
+1. **Recommended for a distributable HACS release:** bundle the card entry point and its imported modules into the published `synology-nas-card.js` artifact using the project's build process. Publish and install that single browser-ready artifact. The Lovelace resource type remains `JavaScript module`.
+2. **Development/testing without bundling:** deploy `synology-nas-card.module.js`, `synology-hardware-utils.js`, `synology-hardware-data.js` and `synology-layouts.js` together in the same directory, preserving their filenames and relative paths. Configure the Lovelace resource URL to the module entry point and set its type to `JavaScript module`.
+
+Do not add the helper modules as independent Lovelace resources. They are imported by the entry point. Also do not overwrite a working installation before backing up the existing card file and testing the new build.
+
+### Validate the hardware registry
+
+In a JavaScript environment that supports ES modules, run:
+
+```js
+import {
+  validateHardwareRegistry,
+  getSynologyHardware,
+  findPanelDef,
+} from './synology-hardware-utils.js';
+
+console.log(validateHardwareRegistry());
+console.log(getSynologyHardware('DS1525+'));
+console.log(findPanelDef('DS1525+', 5));
+```
+
+A successful registry validation checks the internal data structure; it does **not** prove that every hardware field is correct or that a panel drawing is dimensionally accurate. Check the reported model data against Synology's official specification for the exact NAS.
+
+### Data sources
+
+The hardware registry includes source references to Synology's official documentation:
+
+- [Synology CPU information knowledge-base article](https://kb.synology.com/en-global/DSM/tutorial/What_kind_of_CPU_does_my_NAS_have)
+- [Synology product catalogue](https://www.synology.com/en-global/products)
+- [DS1525+ official specifications](https://www.synology.com/en-global/products/DS1525%2B?lang=en-global)
+
+The data module records the snapshot date and provenance notes for the registry. A source reference at family or product level should not be read as proof that every field of every model has undergone a separate, current SKU-level audit.
+
+---
 
 ## Troubleshooting
 
 ### Card not loading
 - Open browser console (`F12`) and check for errors
 - Verify the resource URL is correct:
-  - HACS: `/hacsfiles/synology-nas-monitoring-card/synology-nas-card.js`
+  - HACS: use the resource URL installed by HACS for this repository.
   - Manual: `/local/synology-nas-card.js`
+  - Modular development entry point: use the URL of `synology-nas-card.module.js` only when all three imported modules are deployed beside it.
 - Hard refresh (`Ctrl+Shift+R`)
 
 ### No drives detected
@@ -168,6 +236,14 @@ The prefix is everything between `sensor.` and `_temperature` → `synology_nas`
 ---
 
 ## Changelog
+
+### Hardware knowledge base integration (development package)
+- Added a modular Synology hardware registry covering 128 model records across multiple product families.
+- Added shared model lookup and CPU/core/thread detection helpers.
+- Added model/bay layout definitions and generic fallback generation.
+- Added source metadata and registry validation helpers.
+- **Qualification:** model coverage is broad but not exhaustive; panel geometry is schematic and not dimensionally verified. This is a development-package addition, not a claim that every historical model or chassis drawing is fully audited.
+
 
 ### v0.12.6
 - **CPU sparkline range tightened to 0..1 load** — at 0..cpu_cores (the v0.12.5 choice), a normal idle reading of 0.02 sat invisibly on the bottom edge. A NAS rarely runs above one core worth of work; clamping at 1.0 keeps the line readable for the common case while still anchoring noise.

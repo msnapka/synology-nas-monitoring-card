@@ -1,12 +1,21 @@
+import {
+  SYNOLOGY_CORES,
+  SYNOLOGY_PANEL_DEFS,
+  generateDynamicPanelDef,
+  findPanelDef,
+  detectCoresFromModel,
+  getSynologyHardware,
+} from './synology-hardware-utils.js';
+
 /**
  * Synology NAS Monitoring Card — Custom Lovelace Card for Home Assistant
  * Visualizes Synology NAS status using the native Synology DSM integration.
- * Created with the help of AI (Claude by Anthropic).
- * @version 0.12.6
+ * Extended with dynamic 1–60+ bay SVG generation, regex discovery, and unit-aware storage pools.
+ * @version 0.13.0-universal
  * @license MIT
  */
 
-const CARD_VERSION = "0.12.6";
+const CARD_VERSION = "0.13.0-universal";
 
 console.info(
   `%c SYNOLOGY-NAS-CARD %c v${CARD_VERSION} `,
@@ -146,7 +155,7 @@ const T = {
 }[_LANG];
 
 /* ═══════════════════════════════════════════════════════════════
-   Shared helpers
+   Universal Regex-Based Discovery Helpers
    ═══════════════════════════════════════════════════════════════ */
 
 function discoverPrefixes(hass) {
@@ -160,173 +169,69 @@ function discoverPrefixes(hass) {
   return [...out].sort();
 }
 
-function detectDriveSlots(hass, pfx) {
-  const ids = [];
-  for (let i = 1; i <= 24; i++) {
-    if (hass.states[`sensor.${pfx}_drive_${i}_status`]) ids.push(i);
+function discoverIndices(hass, pfx, baseName) {
+  const ids = new Set();
+  const prefixStr = `sensor.${pfx}_${baseName}_`;
+  for (const eid of Object.keys(hass.states)) {
+    if (eid.startsWith(prefixStr)) {
+      const rest = eid.slice(prefixStr.length);
+      const idxMatch = rest.match(/^(\d+)_/);
+      if (idxMatch) {
+        ids.add(parseInt(idxMatch[1], 10));
+      }
+    }
   }
-  return ids;
+  return [...ids].sort((a, b) => a - b);
+}
+
+function detectDriveSlots(hass, pfx) {
+  const indices = discoverIndices(hass, pfx, "drive");
+  if (indices.length > 0) return indices;
+  // Fallback scan for generic naming
+  const fallback = [];
+  for (let i = 1; i <= 64; i++) {
+    if (hass.states[`sensor.${pfx}_drive_${i}_status`]) fallback.push(i);
+  }
+  return fallback;
 }
 
 function detectM2Slots(hass, pfx) {
-  const ids = [];
-  for (let i = 1; i <= 8; i++) {
-    if (hass.states[`sensor.${pfx}_m_2_drive_${i}_status`]) ids.push(i);
+  const indices = discoverIndices(hass, pfx, "m_2_drive");
+  if (indices.length > 0) return indices;
+  const fallback = [];
+  for (let i = 1; i <= 16; i++) {
+    if (hass.states[`sensor.${pfx}_m_2_drive_${i}_status`]) fallback.push(i);
   }
-  return ids;
+  return fallback;
 }
 
 function detectVolumes(hass, pfx) {
-  const ids = [];
-  for (let i = 1; i <= 16; i++) {
-    if (hass.states[`sensor.${pfx}_volume_${i}_volume_used`]) ids.push(i);
+  const indices = discoverIndices(hass, pfx, "volume");
+  if (indices.length > 0) return indices;
+
+  const ids = new Set();
+  for (let i = 1; i <= 64; i++) {
+    if (
+      hass.states[`sensor.${pfx}_volume_${i}_volume_used`] ||
+      hass.states[`sensor.${pfx}_volume_${i}_used`] ||
+      hass.states[`sensor.${pfx}_volume_${i}_size_used`] ||
+      hass.states[`sensor.${pfx}_volume_${i}_total_size`]
+    ) {
+      ids.add(i);
+    }
   }
-  return ids;
-}
-
-/* Known Synology models → CPU core count.
-   Used as a best-effort auto-detect when the card is added.
-   Users can override via the editor. */
-const SYNOLOGY_CORES = {
-  // Plus / Value (2-bay)
-  "DS220+": 2, "DS224+": 2, "DS223": 2, "DS223j": 2, "DS120j": 2, "DS124": 2,
-  "DS720+": 2, "DS723+": 2, "DS423+": 2, "DS423": 4, "DS224": 2,
-  // Plus (4-bay)
-  "DS418": 4, "DS418play": 2, "DS420+": 2, "DS420j": 4, "DS423+": 2,
-  "DS920+": 4, "DS923+": 4, "DS1019+": 4, "DS1522+": 4,
-  // Plus (6-bay)
-  "DS1618+": 4, "DS1621+": 4, "DS1621xs+": 4, "DS1622xs+": 4,
-  // Plus (8-bay)
-  "DS1819+": 4, "DS1821+": 4, "DS1823xs+": 8,
-  // XS / XS+
-  "DS2419+": 4, "DS2422+": 4, "DS3617xs": 4, "DS3617xsII": 8,
-  "DS3622xs+": 12, "DS3018xs": 4, "DS2419+II": 4,
-  // Rack
-  "RS1221+": 4, "RS1221RP+": 4, "RS1619xs+": 4, "RS2421+": 4, "RS2421RP+": 4,
-  "RS2423+": 4, "RS2423RP+": 4, "RS3621xs+": 8, "RS3621RPxs": 8, "RS4021xs+": 8,
-  "RS422+": 2, "RS822+": 2, "RS820+": 4, "RS1619xs+": 4, "RS3618xs": 4,
-  // Flashstation
-  "FS2500": 8, "FS3400": 8, "FS3600": 12, "FS6400": 16, "FS3410": 8, "FS6410": 16,
-};
-
-/* ═══════════════════════════════════════════════════════════════
-   Synology front-panel definitions — modular, data-only.
-   Each entry describes the visual layout of the NAS front face.
-
-   Structure of one definition:
-   {
-     label : string          — model name shown as caption
-     vw    : number          — SVG viewBox width
-     vh    : number          — SVG viewBox height
-     chassis: {rx, fill, stroke}  — optional chassis override
-     drives: Array of {
-       x, y, w, h  — slot bounding box (px inside viewBox)
-       type        — "hdd" | "m2"
-       slot        — 1-based drive index (matches entity _drive_N_ / _m_2_drive_N_)
-     }
-     extras: Array of {
-       type   — "power" | "usb" | "led" | "label"
-       x, y   — centre or top-left
-       r?     — radius (for circles)
-       w?, h? — width/height (for rects)
-       text?  — label string
-     }
-   }
-
-   To add a new NAS model, just add an entry here.
-   The generic renderer (_frontPanel) works with any definition.
-   ═══════════════════════════════════════════════════════════════ */
-
-function _makeHddRow(startX, y, w, h, gap, count, startSlot) {
-  return Array.from({ length: count }, (_, i) => ({
-    x: startX + i * (w + gap), y, w, h,
-    type: "hdd", slot: startSlot + i,
-  }));
-}
-
-const SYNOLOGY_PANEL_DEFS = {
-  /* ── 2-bay desktop ── */
-  "DS224+": { label: "DS224+",   vw: 120, vh: 90,
-    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
-  "DS223":  { label: "DS223",    vw: 120, vh: 90,
-    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
-  "DS723+": { label: "DS723+",   vw: 120, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
-
-  /* ── 4-bay desktop ── */
-  "DS920+": { label: "DS920+",   vw: 200, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
-  "DS923+": { label: "DS923+",   vw: 200, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
-  "DS423+": { label: "DS423+",   vw: 200, vh: 90,
-    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
-  "DS1019+":{ label: "DS1019+",  vw: 200, vh: 90,
-    drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
-
-  /* ── 5-bay desktop ── */
-  "DS1522+": { label: "DS1522+", vw: 244, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 45, 80, 3, 5, 1), extras: [] },
-
-  /* ── 6-bay desktop ── */
-  "DS1621+": { label: "DS1621+", vw: 286, vh: 90, m2_max: 2,
-    drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
-  "DS1621xs+":{ label: "DS1621xs+", vw: 286, vh: 90,
-    drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
-
-  /* ── 8-bay desktop (DS1821+ — single-row landscape, matches the real chassis face) ── */
-  "DS1821+":  { label: "DS1821+",  vw: 400, vh: 100, m2_max: 2,
-    drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
-  "DS1823xs+":{ label: "DS1823xs+", vw: 400, vh: 100, m2_max: 2,
-    drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
-
-  /* ── 12-bay desktop (DS2422+ — single-row landscape) ── */
-  "DS2422+":  { label: "DS2422+", vw: 560, vh: 100,
-    drives: _makeHddRow(22, 8, 42, 84, 3, 12, 1), extras: [] },
-
-  /* ── Rack 4U 12-bay ── */
-  "RS3621xs+": { label: "RS3621xs+", vw: 400, vh: 60,
-    drives: _makeHddRow(4, 5, 30, 50, 2, 12, 1), extras: [] },
-
-  /* ── Generic fallbacks (used when model not in list) ── */
-  "_generic_2": { label: "NAS (2-bay)",  vw: 120, vh: 90, drives: _makeHddRow(4, 5, 54, 80, 4, 2, 1), extras: [] },
-  "_generic_4": { label: "NAS (4-bay)",  vw: 200, vh: 90, m2_max: 0, drives: _makeHddRow(4, 5, 47, 80, 3, 4, 1), extras: [] },
-  "_generic_6": { label: "NAS (6-bay)",  vw: 286, vh: 90, drives: _makeHddRow(4, 5, 44, 80, 3, 6, 1), extras: [] },
-  "_generic_8": { label: "NAS (8-bay)",  vw: 400, vh: 100, drives: _makeHddRow(22, 8, 43, 84, 3, 8, 1), extras: [] },
-  "_generic_12":{ label: "NAS (12-bay)", vw: 560, vh: 100, drives: _makeHddRow(22, 8, 42, 84, 3, 12, 1), extras: [] },
-};
-
-/* Return the best panel definition for a model + detected bay counts.
-   Priority: exact model match → generic by HDD bay count → null */
-function findPanelDef(model, hddCount) {
-  if (model && SYNOLOGY_PANEL_DEFS[model])           return SYNOLOGY_PANEL_DEFS[model];
-  const trimmed = (model || "").trim();
-  if (trimmed && SYNOLOGY_PANEL_DEFS[trimmed])        return SYNOLOGY_PANEL_DEFS[trimmed];
-  if (hddCount <= 2)  return SYNOLOGY_PANEL_DEFS["_generic_2"];
-  if (hddCount <= 4)  return SYNOLOGY_PANEL_DEFS["_generic_4"];
-  if (hddCount <= 6)  return SYNOLOGY_PANEL_DEFS["_generic_6"];
-  if (hddCount <= 8)  return SYNOLOGY_PANEL_DEFS["_generic_8"];
-  if (hddCount <= 12) return SYNOLOGY_PANEL_DEFS["_generic_12"];
-  return null;
-}
-
-function detectCoresFromModel(hass, prefix) {
-  try {
-    const marker = `sensor.${prefix}_cpu_utilization_total`;
-    const entReg = hass?.entities?.[marker];
-    const devId  = entReg?.device_id;
-    const device = devId ? hass?.devices?.[devId] : null;
-    const model  = device?.model || "";
-    if (!model) return null;
-    // Exact match
-    if (SYNOLOGY_CORES[model]) return SYNOLOGY_CORES[model];
-    // Trim trailing whitespace/variants
-    const trimmed = model.trim();
-    if (SYNOLOGY_CORES[trimmed]) return SYNOLOGY_CORES[trimmed];
-    return null;
-  } catch (_) {
-    return null;
+  const mainState = hass.states[`sensor.${pfx}`] || hass.states[`sensor.${pfx}_dsm`];
+  if (mainState && mainState.attributes) {
+    const attrVolumes = mainState.attributes.volumes || mainState.attributes.storage_pools;
+    if (Array.isArray(attrVolumes)) {
+      attrVolumes.forEach((_, idx) => ids.add(idx + 1));
+    }
   }
+  return [...ids].sort((a, b) => a - b);
 }
+
+// Hardware knowledge base is maintained in separate ES modules.
+// This card file is therefore an ES module and must be bundled for single-resource HACS deployment.
 
 function prettyName(pfx) {
   const m = pfx.match(/synology[_\s]*((?:ds|rs|fs|sa|dvr|uc)\d{3,5})/i);
@@ -405,9 +310,9 @@ class SynologyNasCard extends HTMLElement {
     this._uptimeInterval = null;
     this._openSecKeys = new Set();
     this._securityExpanded = false;
-    this._openDrives = new Set();   // drive bay keys with inline expand open
-    this._openVolumes = new Set();  // volume ids with inline expand open
-    this._history = {};             // entity_id -> [{t: ms, v: number}, ...]
+    this._openDrives = new Set();
+    this._openVolumes = new Set();
+    this._history = {};
     this._historyFetching = false;
     this._historyLastFetch = 0;
     this._historyInterval = null;
@@ -415,7 +320,6 @@ class SynologyNasCard extends HTMLElement {
 
   connectedCallback() {
     this._uptimeInterval = setInterval(() => this._render(), 60000);
-    // Refetch history every 10 minutes
     this._historyInterval = setInterval(() => this._fetchHistory(true), 10 * 60 * 1000);
   }
 
@@ -427,7 +331,6 @@ class SynologyNasCard extends HTMLElement {
   set hass(h) {
     const firstBoot = !this._hass;
     this._hass = h;
-    // Migration: on first hass, if user config has no explicit cpu_cores, try to auto-detect from device model
     if (firstBoot && this._config?.entity_prefix && !this._config._coresAutoDetected) {
       const auto = detectCoresFromModel(h, this._config.entity_prefix);
       if (auto && (!this._config.cpu_cores || this._config.cpu_cores === 4)) {
@@ -435,14 +338,12 @@ class SynologyNasCard extends HTMLElement {
       }
       this._config._coresAutoDetected = true;
     }
-    // Fetch history on first hass (after a small delay to avoid blocking initial render)
     if (firstBoot && this._config?.entity_prefix) {
       setTimeout(() => this._fetchHistory(false), 100);
     }
     this._render();
   }
 
-  /* ── history fetch (24h) for sparklines and trend arrows ── */
   async _fetchHistory(force) {
     if (!this._hass || !this._config?.entity_prefix) return;
     if (this._historyFetching) return;
@@ -489,10 +390,6 @@ class SynologyNasCard extends HTMLElement {
     }
   }
 
-  /* ── sparkline SVG from a history series ──
-       fixedMin/fixedMax (optional) anchor the Y range so the line doesn't auto-stretch
-       on fractional drift; values are clamped into [0, h] so out-of-range points don't
-       leave the box. */
   _sparkline(entityId, color, fixedMin, fixedMax) {
     const pts = this._history?.[entityId];
     if (!pts || pts.length < 2) return "";
@@ -518,12 +415,10 @@ class SynologyNasCard extends HTMLElement {
     </svg>`;
   }
 
-  /* ── trend arrow: compare current value against ~15 min ago ── */
   _trendArrow(entityId, currentValue, minDelta = 1) {
     const pts = this._history?.[entityId];
     if (!pts || pts.length < 2 || currentValue == null) return "";
     const cutoff = Date.now() - 15 * 60 * 1000;
-    // find the closest point at or before cutoff
     let ref = null;
     for (let i = pts.length - 1; i >= 0; i--) {
       if (pts[i].t <= cutoff) { ref = pts[i]; break; }
@@ -535,9 +430,6 @@ class SynologyNasCard extends HTMLElement {
     return `<span class="trend trend-down">\u2193</span>`;
   }
 
-  /* ── inline SVG sparkline path — returns raw SVG elements for embedding in larger SVG
-       fixedMin/fixedMax (optional) anchor the Y range so the line doesn't auto-stretch on
-       half-degree drift (useful for drive temperatures, e.g. 15..50 °C). */
   _sparklineSVGPath(entityId, x, y, w, h, color, fixedMin, fixedMax) {
     const pts = this._history?.[entityId];
     if (!pts || pts.length < 2) return "";
@@ -553,7 +445,6 @@ class SynologyNasCard extends HTMLElement {
     const span = Math.max(1, t1 - t0);
     const d = pts.map((p, i) => {
       const px = x + ((p.t - t0) / span) * w;
-      // Clamp to [0, h] so out-of-range values stay inside the box
       const yNorm = Math.max(0, Math.min(1, (p.v - min) / (max - min)));
       const py = y + h - yNorm * h;
       return `${i === 0 ? "M" : "L"} ${px.toFixed(1)} ${py.toFixed(1)}`;
@@ -570,8 +461,8 @@ class SynologyNasCard extends HTMLElement {
       show_power: cfg.show_power === true,
       show_shutdown: cfg.show_shutdown === true,
       show_memory: cfg.show_memory !== false,
-      show_drive_panel: cfg.show_drive_panel !== false,   // SVG front-panel view, default true
-      show_drive_grid:  cfg.show_drive_grid  === true,    // text grid view, default false
+      show_drive_panel: cfg.show_drive_panel !== false,
+      show_drive_grid:  cfg.show_drive_grid  === true,
       compact_mode: cfg.compact_mode === true,
       hide_empty_bays: cfg.hide_empty_bays === true,
       dsm_url: cfg.dsm_url || "",
@@ -591,7 +482,6 @@ class SynologyNasCard extends HTMLElement {
 
   getCardSize() { return 8; }
 
-  /* ── state shortcuts ── */
   _s(id)       { return this._hass?.states[id]?.state; }
   _a(id, attr) { return this._hass?.states[id]?.attributes?.[attr]; }
   _num(v, fb)  { const n = parseFloat(v); return isNaN(n) ? fb : n; }
@@ -601,7 +491,7 @@ class SynologyNasCard extends HTMLElement {
     const v = this._s(id);
     return (v == null || v === "unknown" || v === "unavailable") ? null : parseFloat(v);
   }
-  /* ── HA more-info dialog ── */
+
   _moreInfo(entityId) {
     if (!entityId) return;
     if (!this._hass?.states[entityId]) return;
@@ -615,17 +505,14 @@ class SynologyNasCard extends HTMLElement {
     el.classList.add("clickable");
     el.setAttribute("title", entityId);
     el.addEventListener("click", (e) => {
-      // For nested [data-entity] regions (e.g. drive-bay SVG with sub-groups),
-      // ensure only the innermost matching element handles the click.
       const target = e.target instanceof Element ? e.target : null;
       const closest = target?.closest?.("[data-entity]");
-      if (closest && closest !== el) return; // inner handler will fire
+      if (closest && closest !== el) return;
       e.stopPropagation();
       this._moreInfo(entityId);
     });
   }
 
-  /* ── gauge ── */
   _gauge(value, max, label, unit, thr, decimals = 0, entityId = "", extra = "") {
     const ds = entityId ? ` data-entity="${entityId}"` : "";
     if (value === null) {
@@ -644,8 +531,6 @@ class SynologyNasCard extends HTMLElement {
       if (value >= thr.red)         color = "var(--error-color,#f44336)";
       else if (value >= thr.yellow) color = "var(--warning-color,#ff9800)";
     }
-    /* Semi-circle: left=(10,50) right=(90,50) r=40, sweep clockwise.
-       theta = PI * pct  →  x = 50 - 40*cos(theta),  y = 50 - 40*sin(theta) */
     const theta = Math.PI * pct;
     const ex = (50 - 40 * Math.cos(theta)).toFixed(2);
     const ey = (50 - 40 * Math.sin(theta)).toFixed(2);
@@ -662,7 +547,6 @@ class SynologyNasCard extends HTMLElement {
     </div>`;
   }
 
-  /* ── drive bay ── */
   _driveBay(i, isM2) {
     const pfx    = isM2 ? "m_2_drive" : "drive";
     const statusId = this._e(`${pfx}_${i}_status`);
@@ -697,7 +581,6 @@ class SynologyNasCard extends HTMLElement {
     if (badSec === "on") w.push(`\u26a0\ufe0f ${T.bad_sectors}`);
     if (remLife === "on") w.push(`\u26a0\ufe0f ${T.low_life}`);
 
-    // Drive model and capacity from entity attributes
     const driveModel = stAttrs.drive_model || stAttrs.model || null;
     const sizeMB     = stAttrs.drive_size_mb ?? stAttrs.disk_size_mb ?? null;
     let capacityStr  = null;
@@ -706,8 +589,6 @@ class SynologyNasCard extends HTMLElement {
       capacityStr = tb >= 0.95 ? `${tb.toFixed(1)} TB` : `${(sizeMB / 1024).toFixed(0)} GB`;
     }
 
-    // Build extra attributes for expanded view
-    // Skip internal HA meta-keys AND anything already shown in the bay header or promoted rows
     const skipAttrs = new Set([
       "friendly_name","icon","attribution","device_class","state_class","unit_of_measurement",
       "smart_status","smart_status_short","temperature",
@@ -740,38 +621,64 @@ class SynologyNasCard extends HTMLElement {
     </div>`;
   }
 
-  /* ── RAID type helper ──
-     Tries several attribute names used across DSM integration versions. */
   _raidType(i) {
-    const sid   = this._e(`volume_${i}_status`);
+    const p = this._config.entity_prefix;
+    const sid = this._e(`volume_${i}_status`) || this._e(`volume_${i}_volume_status`) || `sensor.${p}_volume_${i}_status`;
     const attrs = this._hass?.states[sid]?.attributes || {};
-    const raw   = attrs.device_type || attrs.raid_type || attrs.fs_type || null;
+    const mainState = this._hass?.states[`sensor.${p}`] || this._hass?.states[`sensor.${p}_dsm`];
+    const attrVol = mainState?.attributes?.volumes?.[i - 1] || mainState?.attributes?.storage_pools?.[i - 1];
+    const raw = attrs.device_type || attrs.raid_type || attrs.fs_type || attrVol?.raid_type || attrVol?.device_type || null;
     if (!raw) return null;
     return raw.replace(/_/g, " ").toUpperCase();
   }
 
-  /* ── volume ── */
+  /* Unit-aware volume parser handling GB, TB, GiB, TiB, MB, PB dynamically */
   _volume(i) {
-    const usedId  = this._e(`volume_${i}_volume_used`);
-    const statusId= this._e(`volume_${i}_status`);
-    const pct     = this._n(usedId);
-    const usedTB  = this._n(this._e(`volume_${i}_used_space`));
-    const totalTB = this._n(this._e(`volume_${i}_total_size`));
-    const status  = this._s(statusId);
-    const avgT    = this._n(this._e(`volume_${i}_average_disk_temp`));
-    const maxT    = this._n(this._e(`volume_${i}_maximum_disk_temp`));
-    const raid    = this._raidType(i);
-    const freeGB  = (totalTB != null && usedTB != null)
-      ? ((totalTB - usedTB) * 1024).toFixed(0)
-      : "\u2014";
+    const p = this._config.entity_prefix;
+    const usedId = this._e(`volume_${i}_volume_used`) || this._e(`volume_${i}_used`) || `sensor.${p}_volume_${i}_size_used`;
+    const totalId = this._e(`volume_${i}_total_size`) || this._e(`volume_${i}_total`) || `sensor.${p}_volume_${i}_total_size`;
+    const statusId = this._e(`volume_${i}_status`) || this._e(`volume_${i}_volume_status`) || `sensor.${p}_volume_${i}_status`;
+
+    const usedState = this._hass?.states[usedId];
+    const totalState = this._hass?.states[totalId];
+    const mainState = this._hass?.states[`sensor.${p}`] || this._hass?.states[`sensor.${p}_dsm`];
+    const attrVol = mainState?.attributes?.volumes?.[i - 1] || mainState?.attributes?.storage_pools?.[i - 1];
+
+    const usedRaw = this._n(usedId);
+    const totalRaw = this._n(totalId);
+    const usedUnit = (usedState?.attributes?.unit_of_measurement || "GB").toUpperCase();
+    const totalUnit = (totalState?.attributes?.unit_of_measurement || "GB").toUpperCase();
+
+    function toGB(val, unit) {
+      if (val === null) return 0;
+      if (unit.includes("TB") || unit.includes("TIB")) return val * 1024;
+      if (unit.includes("MB") || unit.includes("MIB")) return val / 1024;
+      if (unit.includes("PB") || unit.includes("PIB")) return val * 1024 * 1024;
+      return val; // GB or GiB
+    }
+
+    const usedGB = usedRaw !== null ? toGB(usedRaw, usedUnit) : (attrVol ? attrVol.used / 1024 / 1024 : 0);
+    const totalGB = totalRaw !== null ? toGB(totalRaw, totalUnit) : (attrVol ? attrVol.total / 1024 / 1024 : 0);
+    const freeGB = Math.max(0, totalGB - usedGB);
+    const pct = totalGB > 0 ? Number(((usedGB / totalGB) * 100).toFixed(1)) : (attrVol?.percent ?? attrVol?.used_pct ?? null);
+
+    const displayUnit = totalGB >= 1024 ? "TB" : "GB";
+    const scaleDiv = displayUnit === "TB" ? 1024 : 1;
+    const usedVal = (usedGB / scaleDiv).toFixed(2);
+    const totalVal = (totalGB / scaleDiv).toFixed(2);
+    const freeFormatted = displayUnit === "TB" ? (freeGB / 1024).toFixed(2) + " TB" : freeGB.toFixed(0) + " GB";
+
+    const status = this._s(statusId) || attrVol?.status || "normal";
+    const avgT = this._n(this._e(`volume_${i}_average_disk_temp`)) || this._n(`sensor.${p}_volume_${i}_average_disk_temp`);
+    const maxT = this._n(this._e(`volume_${i}_maximum_disk_temp`)) || this._n(`sensor.${p}_volume_${i}_maximum_disk_temp`);
+    const raid = this._raidType(i);
+
     let bc = "var(--success-color,#4caf50)";
     if (pct != null) {
       if (pct >= 90)      bc = "var(--error-color,#f44336)";
       else if (pct >= 75) bc = "var(--warning-color,#ff9800)";
     }
 
-    // Volume card \u2014 no expand toggle: the status entity doesn't expose anything beyond what's
-    // already in the collapsed view, so the "Details" panel was always empty.
     return `<div class="volume-card" data-volume-id="${i}">
       <div class="volume-body" data-entity="${usedId}">
         <div class="volume-header">
@@ -786,8 +693,8 @@ class SynologyNasCard extends HTMLElement {
         </div>
         <div class="volume-details">
           <span>${pct != null ? pct + "%" : "\u2014"} ${T.used}</span>
-          <span>${usedTB != null ? usedTB.toFixed(2) : "\u2014"} / ${totalTB != null ? totalTB.toFixed(2) : "\u2014"} TB</span>
-          <span>${freeGB} GB ${T.free}</span>
+          <span>${usedVal} / ${totalVal} ${displayUnit}</span>
+          <span>${freeFormatted} ${T.free}</span>
         </div>
         ${avgT != null || maxT != null ? `
         <div class="volume-temps">
@@ -798,14 +705,12 @@ class SynologyNasCard extends HTMLElement {
     </div>`;
   }
 
-  /* ── front panel SVG ── */
   _frontPanel(panelDef, hddSlots, m2Slots) {
     const { vw, vh, drives } = panelDef;
     const thr = this._config.thresholds || {};
     const driveTempWarn = thr.drive_temp_warn ?? 45;
     const driveTempHot  = driveTempWarn + 12;
 
-    /* colour helpers */
     const slotInfo = (type, slot) => {
       const pfx    = type === "m2" ? "m_2_drive" : "drive";
       const sid    = this._e(`${pfx}_${slot}_status`);
@@ -820,37 +725,30 @@ class SynologyNasCard extends HTMLElement {
       const isNormal   = ["normal","initialized"].includes(stat);
       const isError    = !isEmpty && !isHotSpare && !isNormal;
 
-      // Additional alarm conditions raised by the integration's per-drive binary sensors
-      // (note: these live under binary_sensor.*, hence _b, not _e). hasAlert drives the
-      // red outline on the bay door (chassis "problem light").
       const badSect  = (this._s(this._b(`${pfx}_${slot}_exceeded_max_bad_sectors`)) || "").toLowerCase() === "on";
       const lowLife  = (this._s(this._b(`${pfx}_${slot}_below_min_remaining_life`)) || "").toLowerCase() === "on";
       const smartBad = smart && smart !== "normal" && smart !== "unknown" && smart !== "unavailable";
       const hasAlert = !isEmpty && !isHotSpare && (isError || smartBad || badSect || lowLife);
 
-      // Tray fill = operational status
       let trayFill;
       if      (isEmpty)     trayFill = "#0d0d0d";
-      else if (isHotSpare)  trayFill = "#04040f"; // dark blue tint
-      else if (isNormal)    trayFill = "#04100a"; // dark green tint
-      else                  trayFill = "#120404"; // dark red tint
+      else if (isHotSpare)  trayFill = "#04040f";
+      else if (isNormal)    trayFill = "#04100a";
+      else                  trayFill = "#120404";
 
-      // Border stroke = temperature status
       let borderStroke;
       if      (isEmpty || temp === null)    borderStroke = "#222";
       else if (temp >= driveTempHot)        borderStroke = "#f44336";
       else if (temp >= driveTempWarn)       borderStroke = "#ff6b00";
-      else                                  borderStroke = "#2a5c2a"; // cool green outline for normal
+      else                                  borderStroke = "#2a5c2a";
 
-      // LED = SMART status
       let ledColor;
       if      (isEmpty)              ledColor = null;
-      else if (isHotSpare)           ledColor = "#2196f3";  // blue — not a warning
-      else if (smart === "normal")   ledColor = "#4caf50";  // green
-      else if (smart && smart !== "unavailable" && smart !== "unknown") ledColor = "#f44336"; // red
-      else                           ledColor = "#4caf50";  // default green when no SMART data
+      else if (isHotSpare)           ledColor = "#2196f3";
+      else if (smart === "normal")   ledColor = "#4caf50";
+      else if (smart && smart !== "unavailable" && smart !== "unknown") ledColor = "#f44336";
+      else                           ledColor = "#4caf50";
 
-      // Capacity from entity attributes
       const attrs    = this._hass?.states[sid]?.attributes || {};
       const sizeMB   = attrs.drive_size_mb ?? attrs.disk_size_mb ?? null;
       let capacityTxt = null;
@@ -863,31 +761,15 @@ class SynologyNasCard extends HTMLElement {
                eid: sid, tid, smid, smart, capacityTxt };
     };
 
-    /* render one drive slot — at-a-glance layout:
-         ┌──────────────────────┐
-         │ #1             ✓ SMART│  ← slot# top-left, SMART glyph top-right
-         │      4.0 TB          │  ← capacity centred, large
-         │   ╱╲    ╱╲           │  ← sparkline (middle-bottom ~35%)
-         │  ╱  ╲__╱  ╲__        │
-         │ 🌡 30°C              │  ← temp bottom-left, colour-coded
-         └──────────────────────┘
-       Empty  → grey, "Empty" centred
-       Spare  → blue tint, "SPARE" label
-       Distinct <g data-entity> regions for per-part more-info
-    */
     const renderSlot = (x, y, w, h, type, slot) => {
       const info = slotInfo(type, slot);
       const isM2 = type === "m2";
 
-      // Temperature colour by threshold
       const tempColor = (info.temp !== null && info.temp >= driveTempHot) ? "#f44336"
                       : (info.temp !== null && info.temp >= driveTempWarn) ? "#ffb300"
                       : "#4caf50";
       const sparkColor = (info.temp !== null && info.temp >= driveTempWarn) ? "#ffb300" : "#03a9f4";
 
-      // Drive bay door — matte black plastic look, no UI-grid coloured borders.
-      // Door fill is dark regardless of status (only a tiny LED + a thin temp strip carry status);
-      // tempStrip is a thin warning bar at the door bottom edge; tempStrip + finger-pull come below.
       const doorFill = info.isEmpty    ? "#080808"
                      : info.isHotSpare ? "#0e1218"
                      : info.isError    ? "#1a0d0d"
@@ -899,17 +781,13 @@ class SynologyNasCard extends HTMLElement {
         else if (info.temp >= driveTempWarn)
           tempStrip = `<rect x="${x+2}" y="${y+h-2.5}" width="${w-4}" height="1.2" rx="0.4" fill="#ff9800" opacity="0.75"/>`;
       }
-      // Finger-pull groove at the bottom front of the door (matches a real DS bay)
-      const pullW = Math.max(8, w * 0.42);
+      const pullW = Math.max(6, w * 0.42);
       const pullH = isM2 ? 1.4 : 2.2;
       const pullX = x + (w - pullW) / 2;
       const pullY = y + h - pullH - 4.5;
       const pull = `
         <rect x="${pullX}" y="${pullY}" width="${pullW}" height="${pullH}" rx="${pullH/2}" fill="#040404"/>
         <rect x="${pullX + 0.5}" y="${pullY + 0.3}" width="${pullW - 1}" height="0.5" rx="0.25" fill="#2c2c2c" opacity="0.5"/>`;
-      // Door chassis: dark plastic + subtle top-edge highlight + optional warning strip.
-      // Bays with an alarm (drive error / SMART fail / bad sectors / low life) get a static
-      // red outline + slightly redder fill so the problem bay is obvious in the chassis.
       const alertOutline = info.hasAlert
         ? `<rect x="${x - 0.5}" y="${y - 0.5}" width="${w + 1}" height="${h + 1}" rx="3" fill="none" stroke="#f44336" stroke-width="1" opacity="0.95"/>
            <rect x="${x + 1.5}" y="${y + 1.5}" width="${w - 3}" height="${h - 3}" rx="1.8" fill="#f44336" opacity="0.07"/>`
@@ -920,67 +798,58 @@ class SynologyNasCard extends HTMLElement {
         ${alertOutline}
         ${tempStrip}`;
 
-      // Empty bay — dark door + small slot number top-left + "Empty" centred + finger-pull
       if (info.isEmpty) {
         const emptyLbl = isM2 ? "M.2" : `${slot}`;
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}" data-entity="${info.eid}" style="cursor:pointer">
           ${chassis}
-          <text x="${x+4}" y="${y+9}" font-size="${isM2?4.5:5.5}" fill="#3f3f3f" font-family="sans-serif" font-weight="600">${emptyLbl}</text>
-          <text x="${x+w/2}" y="${y+h/2}" text-anchor="middle" font-size="${isM2 ? Math.min(7, h*0.24) : Math.min(7, w*0.15)}" fill="#3f3f3f" font-family="sans-serif" font-style="italic">${T.empty}</text>
+          <text x="${x+4}" y="${y+9}" font-size="${isM2?4.5:5}" fill="#3f3f3f" font-family="sans-serif" font-weight="600">${emptyLbl}</text>
+          <text x="${x+w/2}" y="${y+h/2}" text-anchor="middle" font-size="${isM2 ? Math.min(6, h*0.24) : Math.min(6, w*0.25)}" fill="#3f3f3f" font-family="sans-serif" font-style="italic">${T.empty}</text>
           ${pull}
         </g>`;
       }
 
-      // Slot label top-left — small drive number, no "#" (real DS bays just have a digit)
       const lblText = isM2 ? `M.2/${slot}` : `${slot}`;
-      const slotLbl = `<text x="${x+4}" y="${y+9}" font-size="${isM2 ? 5 : 6.5}" fill="#9a9a9a" font-family="sans-serif" font-weight="600">${lblText}</text>`;
+      const slotLbl = `<text x="${x+4}" y="${y+9}" font-size="${isM2 ? 4.5 : 5.5}" fill="#9a9a9a" font-family="sans-serif" font-weight="600">${lblText}</text>`;
 
-      // SMART status as a tiny LED at top-right (with a faint glow ring)
-      let smartLedColor = "#4caf50"; // default green when no SMART data
-      if (info.smart === "normal")                                                     smartLedColor = "#4caf50";
+      let smartLedColor = "#4caf50";
+      if (info.smart === "normal") smartLedColor = "#4caf50";
       else if (info.smart && info.smart !== "unknown" && info.smart !== "unavailable") smartLedColor = "#f44336";
       const ledX = x + w - 4.5;
       const ledY = y + 6;
       const smartEid = info.smid && this._hass?.states[info.smid] ? info.smid : info.eid;
       const smartGroup = `<g data-entity="${smartEid}" style="cursor:pointer">
         <rect x="${ledX - 6}" y="${ledY - 4}" width="10" height="8" fill="transparent"/>
-        <circle cx="${ledX}" cy="${ledY}" r="2.4" fill="${smartLedColor}" opacity="0.18"/>
-        <circle cx="${ledX}" cy="${ledY}" r="1.3" fill="${smartLedColor}"/>
+        <circle cx="${ledX}" cy="${ledY}" r="2" fill="${smartLedColor}" opacity="0.18"/>
+        <circle cx="${ledX}" cy="${ledY}" r="1.1" fill="${smartLedColor}"/>
       </g>`;
 
-      // Hot spare — quiet "SPARE" label + finger-pull
       if (info.isHotSpare) {
         return `<g class="fp-slot" data-fp-slot="${slot}" data-fp-type="${type}">
           <g data-entity="${info.eid}" style="cursor:pointer">${chassis}${slotLbl}</g>
           ${smartGroup}
-          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(10, w*0.2)}" fill="#3a86ff" font-family="sans-serif" font-weight="700" letter-spacing="1">SPARE</text>
+          <text x="${x+w/2}" y="${y+h/2+2}" text-anchor="middle" font-size="${Math.min(9, w*0.2)}" fill="#3a86ff" font-family="sans-serif" font-weight="700">SPARE</text>
           ${pull}
         </g>`;
       }
 
-      // Capacity — centred, smaller & less shouty than before
-      const capFontSize = isM2 ? 6 : 8.5;
-      const capY = y + Math.round(h * 0.38);
-      const capTxt = info.capacityTxt
+      const capFontSize = Math.min(7.5, w * 0.22);
+      const capY = y + Math.round(h * 0.4);
+      const capTxt = info.capacityTxt && w > 30
         ? `<text x="${x+w/2}" y="${capY}" text-anchor="middle" font-size="${capFontSize}" fill="#dcdcdc" font-family="sans-serif" font-weight="700">${info.capacityTxt}</text>`
         : "";
 
-      // Sparkline middle area; fixed 15..50 °C so half-degree drift doesn't become a spike
-      const sparkPadTop = 2, sparkBottomPad = 16;
-      const sparkH = Math.max(7, Math.round(h * 0.28));
+      const sparkPadTop = 2, sparkBottomPad = 14;
+      const sparkH = Math.max(6, Math.round(h * 0.26));
       const sparkY = y + h - sparkH - sparkBottomPad;
-      const sparkPath = this._sparklineSVGPath(info.tid, x + 4, sparkY + sparkPadTop, w - 8, sparkH - sparkPadTop, sparkColor, 15, 50);
-      // Temperature text centred just above the finger-pull
+      const sparkPath = this._sparklineSVGPath(info.tid, x + 3, sparkY + sparkPadTop, w - 6, sparkH - sparkPadTop, sparkColor, 15, 50);
       const tempStr = info.temp !== null ? `${info.temp}°C` : `—`;
-      const tempTxt = `<text x="${x+w/2}" y="${y+h-9}" text-anchor="middle" font-size="${isM2?5.5:6.5}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
+      const tempTxt = `<text x="${x+w/2}" y="${y+h-8}" text-anchor="middle" font-size="${Math.min(6, w*0.22)}" fill="${tempColor}" font-family="sans-serif" font-weight="700">${tempStr}</text>`;
 
-      // Temperature/sparkline clickable region = temperature entity
       const tempGroup = `<g data-entity="${info.tid}" style="cursor:pointer">
         <rect x="${x+2}" y="${sparkY}" width="${w-4}" height="${h - (sparkY - y) - 4}" fill="transparent"/>
         ${sparkPath}${tempTxt}
       </g>`;
 
-      // Body region (door + label + capacity) — status entity
       const bodyGroup = `<g data-entity="${info.eid}" style="cursor:pointer">
         ${chassis}${slotLbl}${capTxt}
       </g>`;
@@ -990,22 +859,19 @@ class SynologyNasCard extends HTMLElement {
       </g>`;
     };
 
-    /* ── HDD bay SVG ── */
     const driveSvg = drives.map(({ x, y, w, h, type, slot }) =>
       renderSlot(x, y, w, h, type, slot)
     ).join("");
 
-    /* ── M.2 slots — fully integrated into the same chassis, tight vertical spacing (~8px) ──
-       Uses panelDef.m2_max to show placeholder empty slots even when entity doesn't exist */
     let m2Svg = "";
     let m2Height = 0;
     const m2Max = panelDef.m2_max || 0;
     const m2All = [...new Set([...m2Slots, ...Array.from({ length: m2Max }, (_, i) => i + 1)])]
       .sort((a, b) => a - b);
-    const m2GapFromHdd = 8; // tight gap between HDD row bottom and M.2 row top
+    const m2GapFromHdd = 8;
     if (m2All.length > 0) {
-      const mw  = Math.min(90, Math.floor((vw - 12) / m2All.length) - 4);
-      const mh  = 34;
+      const mw  = Math.min(80, Math.floor((vw - 12) / m2All.length) - 4);
+      const mh  = 30;
       const gap = 4;
       const totalM2W = m2All.length * mw + (m2All.length - 1) * gap;
       const mStartX  = Math.floor((vw - totalM2W) / 2);
@@ -1017,55 +883,40 @@ class SynologyNasCard extends HTMLElement {
     }
 
     const baysH = m2Height > 0 ? vh + m2Height : vh;
-
-    /* Chassis frame — header band mirrors the real DS1821+ front bezel:
-         left-side LEDs (STATUS, DISK, LAN) next to a small "Synology" wordmark,
-         a clear power-button area at top-center (HTML overlay sits here),
-         model label in the bottom band. */
-    const headerH = 30;
+    const headerH = 28;
     const footerH = 12;
     const totalH  = headerH + baysH + footerH;
 
-    // Status LED colour mirrors the badge severity in the card header
     const issuesNow = this._collectIssues?.() || [];
     const hasCritical = issuesNow.some((i) => i.severity === "critical");
     const hasWarning  = issuesNow.some((i) => i.severity === "warning");
     const statusLed   = hasCritical ? "#f44336" : hasWarning ? "#ff9800" : "#4caf50";
 
-    // "Synology" wordmark, top-left, vertically centered in the (now taller) header band
-    const brand = `<text x="6" y="${headerH/2 + 2}" font-size="7" fill="#bdbdbd" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.5">Synology</text>`;
-
-    // Left-side indicator LEDs (STATUS, DISK, LAN) — small dots with labels under them
+    const brand = `<text x="6" y="${headerH/2 + 2}" font-size="6.5" fill="#bdbdbd" font-family="Inter, Segoe UI, sans-serif" font-weight="700" letter-spacing="0.5">Synology</text>`;
     const ledY = headerH / 2 - 3;
-    const ledR = 1.4;
-    const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 8}" text-anchor="middle" font-size="3" fill="#777" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
+    const ledR = 1.3;
+    const ledLabel = (x, txt) => `<text x="${x}" y="${ledY + 8}" text-anchor="middle" font-size="2.8" fill="#777" font-family="sans-serif" letter-spacing="0.3">${txt}</text>`;
     const ledDot   = (x, color) => `<circle cx="${x}" cy="${ledY}" r="${ledR}" fill="${color}"><animate attributeName="opacity" values="1;0.55;1" dur="3s" repeatCount="indefinite"/></circle>`;
-    const ledStartX = 58;
-    const ledSpacing = 17;
+    const ledStartX = 54;
+    const ledSpacing = 16;
     const leds = `
       ${ledDot(ledStartX,                   statusLed)} ${ledLabel(ledStartX,                  "STATUS")}
       ${ledDot(ledStartX + ledSpacing,      "#4caf50")} ${ledLabel(ledStartX + ledSpacing,     "DISK")}
       ${ledDot(ledStartX + ledSpacing * 2,  "#4caf50")} ${ledLabel(ledStartX + ledSpacing * 2, "LAN")}`;
 
-    // Subtle power-button "well" outline at top-center (visible only if no overlay buttons)
     const showPower = !!this._config.show_power;
     const powerWell = showPower ? "" : `
-      <circle cx="${vw/2}" cy="${headerH/2}" r="6.5" fill="none" stroke="#2c2c2c" stroke-width="0.8"/>
-      <circle cx="${vw/2}" cy="${headerH/2}" r="3.5" fill="#1a1a1a" stroke="#333" stroke-width="0.5"/>
-      <text x="${vw/2}" y="${headerH/2 + 1.6}" text-anchor="middle" font-size="4" fill="#444">⏻</text>`;
+      <circle cx="${vw/2}" cy="${headerH/2}" r="5.5" fill="none" stroke="#2c2c2c" stroke-width="0.7"/>
+      <circle cx="${vw/2}" cy="${headerH/2}" r="3" fill="#1a1a1a" stroke="#333" stroke-width="0.4"/>
+      <text x="${vw/2}" y="${headerH/2 + 1.4}" text-anchor="middle" font-size="3.5" fill="#444">⏻</text>`;
 
-    const modelLbl = `<text x="${vw/2}" y="${totalH - 4}" text-anchor="middle" font-size="5.5" fill="#777" font-family="sans-serif" letter-spacing="0.6" font-weight="600">${panelDef.label}</text>`;
+    const modelLbl = `<text x="${vw/2}" y="${totalH - 4}" text-anchor="middle" font-size="5" fill="#777" font-family="sans-serif" letter-spacing="0.5" font-weight="600">${panelDef.label}</text>`;
 
-    // HTML power overlay (lock + reboot [+ shutdown]) — positioned absolutely at top-center
-    // over the SVG header band. Icons are inline SVG (not emoji) so they render uniformly
-    // across browsers/OS and respect the button colour via currentColor.
     const ICON_LOCK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5v3H5v13h14V9h-2V6a5 5 0 0 0-5-5zm0 2a3 3 0 0 1 3 3v3H9V6a3 3 0 0 1 3-3z"/></svg>`;
     const ICON_UNLOCK = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M12 1a5 5 0 0 0-5 5h2a3 3 0 0 1 6 0v3H5v13h14V9h-5V6a5 5 0 0 0-2-5z"/></svg>`;
     const ICON_REBOOT = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M17.65 6.35A8 8 0 1 0 19.73 14h-2.08A6 6 0 1 1 12 6c1.66 0 3.14.69 4.22 1.78L13 11h7V4l-2.35 2.35z"/></svg>`;
     const ICON_POWER  = `<svg viewBox="0 0 24 24" width="14" height="14" fill="currentColor"><path d="M13 3h-2v10h2V3zm4.83 2.17l-1.42 1.42A6.97 6.97 0 0 1 19 12a7 7 0 1 1-14 0c0-2.05 1.05-3.85 2.59-4.92L6.17 5.65A8.97 8.97 0 0 0 3 12a9 9 0 1 0 18 0c0-2.74-1.23-5.18-3.17-6.83z"/></svg>`;
-    // Position the overlay vertically at the centre of the header band. The frame
-    // height tracks the SVG height (vw : totalH aspect), so top:Y% maps directly to a
-    // y-coord in SVG space; we anchor on headerH/2 and recentre with translateY(-50%).
+    
     const overlayTopPct = ((headerH / 2) / totalH) * 100;
     const powerOverlay = showPower ? `
       <div class="front-panel-power-overlay" style="top: ${overlayTopPct.toFixed(2)}%;">
@@ -1093,20 +944,16 @@ class SynologyNasCard extends HTMLElement {
               <stop offset="100%" stop-color="#0d0d0d"/>
             </linearGradient>
           </defs>
-          <!-- Outer chassis with subtle gradient + soft inner highlight on top edge -->
           <rect x="0" y="0" width="${vw}" height="${totalH}" rx="7"
             fill="url(#chassisGrad)" stroke="#2e2e2e" stroke-width="1"/>
           <rect x="1" y="1" width="${vw - 2}" height="1" rx="1" fill="#3a3a3a" opacity="0.55"/>
-          <!-- Header band: brand, LEDs (left), power-button well (center, hidden when overlay buttons cover it) -->
           ${brand}${leds}${powerWell}
           <line x1="3" y1="${headerH}" x2="${vw - 3}" y2="${headerH}" stroke="#262626" stroke-width="0.5"/>
-          <!-- Bays (translated so existing coordinates remain valid) -->
           <g transform="translate(0, ${headerH})">
             ${driveSvg}
             ${m2Svg}
           </g>
           <line x1="3" y1="${headerH + baysH}" x2="${vw - 3}" y2="${headerH + baysH}" stroke="#262626" stroke-width="0.5"/>
-          <!-- Footer band: model label -->
           ${modelLbl}
         </svg>
         ${powerOverlay}
@@ -1114,7 +961,6 @@ class SynologyNasCard extends HTMLElement {
     </div>`;
   }
 
-  /* ── security — compact when all checks safe, expanded when issues present ── */
   _security() {
     const entity = this._b("security_status");
     const attrs  = this._hass?.states[entity]?.attributes || {};
@@ -1162,7 +1008,6 @@ class SynologyNasCard extends HTMLElement {
 
     const header = `<div class="section-title" data-entity="${entity}">\ud83d\udee1\ufe0f ${T.security}</div>`;
 
-    // All safe → single compact row with expand toggle
     if (presentTiles.length > 0 && issueTiles.length === 0) {
       return `<div class="section">
         ${header}
@@ -1170,7 +1015,6 @@ class SynologyNasCard extends HTMLElement {
       </div>`;
     }
 
-    // Issues present → show issue tiles prominently + collapsed "N passed" chip
     if (issueTiles.length > 0) {
       return `<div class="section">
         ${header}
@@ -1185,12 +1029,9 @@ class SynologyNasCard extends HTMLElement {
       </div>`;
     }
 
-    // No attribute present at all — don't pretend the section exists; render nothing.
-    // (a tile that "isn't there" is not a meaningful state for the user, so we skip it)
     return "";
   }
 
-  /* ── collect issues (with severity) ── */
   _collectIssues() {
     const issues = [];
     const p = this._config.entity_prefix;
@@ -1198,7 +1039,6 @@ class SynologyNasCard extends HTMLElement {
 
     const push = (severity, text) => issues.push({ severity, text });
 
-    // Security
     const secEntity = this._b("security_status");
     const secAttrs  = this._hass?.states[secEntity]?.attributes || {};
     const skipKeys  = new Set(["friendly_name","device_class","icon","attribution"]);
@@ -1209,7 +1049,6 @@ class SynologyNasCard extends HTMLElement {
       }
     }
 
-    // Drives
     const okDriveStates = new Set([
       "normal","initialized","not_used","not_use",
       "hotspare","hot_spare","nondisk","unknown","unavailable",
@@ -1226,13 +1065,11 @@ class SynologyNasCard extends HTMLElement {
         push("warning", `Drive Bay ${i}: ${dt}\u00b0C`);
     }
 
-    // M.2
     for (const i of detectM2Slots(this._hass, p)) {
       const st = (this._s(this._e(`m_2_drive_${i}_status`)) || "").toLowerCase();
       if (st && !okDriveStates.has(st)) push("critical", `M.2 #${i}: status "${st}"`);
     }
 
-    // Volumes
     for (const i of detectVolumes(this._hass, p)) {
       const pct = this._n(this._e(`volume_${i}_volume_used`));
       if (pct !== null && pct >= 95)      push("critical", `Volume ${i}: ${pct}% used`);
@@ -1242,14 +1079,12 @@ class SynologyNasCard extends HTMLElement {
         push("critical", `Volume ${i}: status "${vs}"`);
     }
 
-    // Temperature
     const sysTemp = this._n(this._e("temperature"));
     const tRed    = thr.temp_red    ?? 70;
     const tYellow = thr.temp_yellow ?? 55;
     if (sysTemp !== null && sysTemp >= tRed)         push("critical", `System temperature: ${sysTemp}\u00b0C`);
     else if (sysTemp !== null && sysTemp >= tYellow) push("warning",  `System temperature: ${sysTemp}\u00b0C`);
 
-    // CPU load overload (15-min average vs. core count)
     const cores  = this._config.cpu_cores || 4;
     const load15 = this._n(this._e("cpu_load_average_15_min"));
     if (load15 !== null) {
@@ -1257,7 +1092,6 @@ class SynologyNasCard extends HTMLElement {
       else if (load15 >= cores)  push("warning",  `CPU high load: ${load15.toFixed(2)} / ${cores} cores (15m)`);
     }
 
-    // DSM update available → info
     const dsmV = this._a(`update.${p}_dsm_update`, "installed_version");
     const dsmL = this._a(`update.${p}_dsm_update`, "latest_version");
     if (dsmV && dsmL && dsmV !== dsmL) push("info", `DSM update available: ${dsmL}`);
@@ -1265,9 +1099,6 @@ class SynologyNasCard extends HTMLElement {
     return issues;
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     RENDER
-     ═══════════════════════════════════════════════════════════════ */
   _render() {
     if (!this._hass || !this._config.entity_prefix) return;
     const p = this._config.entity_prefix;
@@ -1276,12 +1107,10 @@ class SynologyNasCard extends HTMLElement {
     const m2Slots    = detectM2Slots(this._hass, p);
     const volSlots   = detectVolumes(this._hass, p);
 
-    // Resolve NAS model + device for front panel and DSM URL auto-detection
     const _marker  = `sensor.${p}_cpu_utilization_total`;
     const _entReg  = this._hass?.entities?.[_marker];
     const _device  = _entReg?.device_id ? this._hass?.devices?.[_entReg.device_id] : null;
     const nasModel = _device?.model?.trim() || "";
-    // Auto-detect DSM URL from HA device registry (configuration_url), fall back to user config
     const _autoDsmUrl = _device?.configuration_url || "";
     const dsmUrl = this._config.dsm_url || _autoDsmUrl || "";
     const panelDef = (this._config.show_drive_panel)
@@ -1303,7 +1132,6 @@ class SynologyNasCard extends HTMLElement {
     const nWarning  = issues.filter((x) => x.severity === "warning").length;
     const nInfo     = issues.filter((x) => x.severity === "info").length;
     const worst   = nCritical ? "critical" : nWarning ? "warning" : nInfo ? "info" : "ok";
-    const healthy = nCritical === 0 && nWarning === 0; // info alone = still healthy
     const hasUpd  = dsmV && dsmL && dsmV !== dsmL;
 
     const dsmDisplay = dsmV ? dsmV.replace(/^DSM\s+/i, "") : "";
@@ -1312,7 +1140,6 @@ class SynologyNasCard extends HTMLElement {
     const uptime     = fmtUptime(lastBoot);
     const bootStr    = fmtBootDate(lastBoot);
 
-    // Drive HTML (optionally hide empty bays)
     const isEmpty = (pfx, i) => {
       const s = this._s(this._e(`${pfx}_${i}_status`));
       return !s || s === "unavailable" || s === "unknown";
@@ -1327,11 +1154,9 @@ class SynologyNasCard extends HTMLElement {
       drivesHtml += this._driveBay(i, true);
     }
 
-    // Volume HTML
     let volsHtml = "";
     for (const i of volSlots) volsHtml += this._volume(i);
 
-    // Memory HTML
     let memHtml = "";
     if (this._config.show_memory) {
       const mA  = this._n(this._e("memory_available_real"));
@@ -1357,7 +1182,6 @@ class SynologyNasCard extends HTMLElement {
       }
     }
 
-    // Issues panel (sorted by severity: critical → warning → info)
     const sevOrder = { critical: 0, warning: 1, info: 2 };
     const sevIcon  = { critical: "\ud83d\udd34", warning: "\u26a0\ufe0f", info: "\u2139\ufe0f" };
     const sortedIssues = [...issues].sort((a, b) => sevOrder[a.severity] - sevOrder[b.severity]);
@@ -1373,10 +1197,6 @@ class SynologyNasCard extends HTMLElement {
         </div>
       </div>` : "";
 
-    // Footer is now empty \u2014 Open DSM lives in the header, power controls live on the chassis SVG.
-    const footerHtml = "";
-
-    /* ── Assemble ── */
     this.shadowRoot.innerHTML = `<style>${this._css()}</style>
     <ha-card class="${this._config.compact_mode ? "compact" : ""}">
       <div class="card-header">
@@ -1410,16 +1230,11 @@ class SynologyNasCard extends HTMLElement {
           { yellow: this._config.thresholds.cpu_yellow ?? cores * 0.7,
             red:    this._config.thresholds.cpu_red    ?? cores * 1.0 },
           2, this._e("cpu_load_average_15_min"),
-          /* Fixed range 0..1: an idle/normal NAS sits well under one-core worth of load,
-             so 0..1 keeps the line visible while still anchoring out small noise.
-             Anything above 1 (oversubscribed) clamps to the top — the gauge already shouts
-             via colour when that happens. */
           this._sparkline(this._e("cpu_load_average_15_min"), "var(--primary-color,#03a9f4)", 0, 1))}
         ${this._gauge(mem, 100, T.ram, "%",
           { yellow: this._config.thresholds.ram_yellow ?? 70,
             red:    this._config.thresholds.ram_red    ?? 90 },
           0, this._e("memory_usage_real"),
-          /* RAM usage is a percentage \u2014 fixed 0..100. */
           this._sparkline(this._e("memory_usage_real"), "var(--accent-color,#ff4081)", 0, 100))}
         ${this._gauge(temp, 80,
           `${T.temp} ${this._trendArrow(this._e("temperature"), temp, 1)}`,
@@ -1427,7 +1242,6 @@ class SynologyNasCard extends HTMLElement {
           { yellow: this._config.thresholds.temp_yellow ?? 55,
             red:    this._config.thresholds.temp_red    ?? 70 },
           0, this._e("temperature"),
-          /* System temperature: 15..80 \u00b0C covers everything from cold idle to dangerously hot. */
           this._sparkline(this._e("temperature"), "var(--warning-color,#ff9800)", 15, 80))}
       </div>
       ${(load1 !== null || load5 !== null || load15 !== null) ? `
@@ -1441,7 +1255,7 @@ class SynologyNasCard extends HTMLElement {
 
       ${panelDef ? `
       <div class="section">
-        <div class="section-title">\ud83d\udcbe ${T.drive_bays}</div>
+        <div class="section-title">\ud83d\udcbe ${T.drive_bays} (${driveSlots.length})</div>
         ${this._frontPanel(panelDef, driveSlots, m2Slots)}
       </div>` : ""}
 
@@ -1453,18 +1267,14 @@ class SynologyNasCard extends HTMLElement {
 
       ${volsHtml ? `
       <div class="section">
-        <div class="section-title">\ud83d\udce6 ${T.volumes}</div>
+        <div class="section-title">\ud83d\udce6 ${T.volumes}${volSlots.length > 1 ? ` (${volSlots.length})` : ""}</div>
         ${volsHtml}
       </div>` : ""}
 
       ${memHtml}
       ${this._config.show_security ? this._security() : ""}
-      ${footerHtml}
     </ha-card>`;
 
-    /* ── Event bindings ── */
-
-    // Issues badge toggle
     const badge = this.shadowRoot.getElementById("status-badge");
     if (badge && issues.length) {
       badge.style.cursor = "pointer";
@@ -1474,7 +1284,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Notify HA button
     const notifyBtn = this.shadowRoot.getElementById("btn-notify-ha");
     if (notifyBtn) {
       notifyBtn.addEventListener("click", (e) => {
@@ -1490,7 +1299,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Security summary toggle (compact "All passed" / "N passed" chip) → expand/collapse all tiles
     const secToggle = this.shadowRoot.getElementById("btn-security-toggle");
     if (secToggle) {
       secToggle.style.cursor = "pointer";
@@ -1501,7 +1309,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Drive bay inline expand toggles
     this.shadowRoot.querySelectorAll("[data-expand-drive]").forEach((el) => {
       el.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -1513,25 +1320,11 @@ class SynologyNasCard extends HTMLElement {
       });
     });
 
-    // Volume inline expand toggles
-    this.shadowRoot.querySelectorAll("[data-expand-volume]").forEach((el) => {
-      el.addEventListener("click", (e) => {
-        e.stopPropagation();
-        const id = parseInt(el.getAttribute("data-expand-volume"), 10);
-        if (isNaN(id)) return;
-        if (this._openVolumes.has(id)) this._openVolumes.delete(id);
-        else this._openVolumes.add(id);
-        this._render();
-      });
-    });
-
-    // Bind more-info on every element with data-entity
     this.shadowRoot.querySelectorAll("[data-entity]").forEach((el) => {
       const eid = el.getAttribute("data-entity");
       this._bindMoreInfo(el, eid);
     });
 
-    // Power lock toggle
     const lockBtn = this.shadowRoot.getElementById("btn-power-lock");
     if (lockBtn) {
       lockBtn.addEventListener("click", () => {
@@ -1540,7 +1333,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Reboot (double confirm)
     const rb = this.shadowRoot.getElementById("btn-reboot");
     if (rb && this._powerUnlocked) {
       rb.addEventListener("click", () => {
@@ -1556,7 +1348,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Shutdown (double confirm)
     const sd = this.shadowRoot.getElementById("btn-shutdown");
     if (sd && this._powerUnlocked) {
       sd.addEventListener("click", () => {
@@ -1572,7 +1363,6 @@ class SynologyNasCard extends HTMLElement {
       });
     }
 
-    // Install DSM update (click on update badge → confirm → install)
     const upd = this.shadowRoot.getElementById("btn-install-update");
     if (upd) {
       upd.addEventListener("click", (e) => {
@@ -1586,15 +1376,11 @@ class SynologyNasCard extends HTMLElement {
     }
   }
 
-  /* ═══════════════════════════════════════════════════════════════
-     CSS
-     ═══════════════════════════════════════════════════════════════ */
   _css() {
     return `
 :host { --card-padding: 16px; }
 ha-card { padding: var(--card-padding); overflow: hidden; }
 
-/* Compact mode */
 ha-card.compact { --card-padding: 10px; }
 ha-card.compact .card-header { margin-bottom: 8px; }
 ha-card.compact .gauges-row { margin: 8px 0 4px; }
@@ -1611,7 +1397,6 @@ ha-card.compact .drive-temp, ha-card.compact .drive-smart { font-size: .65em; }
 ha-card.compact .volume-card { padding: 8px; margin-bottom: 6px; }
 ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 
-/* Clickable → HA more-info */
 .clickable { cursor: pointer; transition: opacity .15s, background .15s; }
 .clickable:hover { opacity: .85; }
 .gauge.clickable:hover .gauge-value { text-decoration: underline; text-decoration-style: dotted; }
@@ -1621,7 +1406,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .volume-body.clickable:hover { background: color-mix(in srgb, var(--primary-text-color) 4%, var(--card-background-color,#fff)); }
 .info-item.clickable:hover { background: color-mix(in srgb, var(--primary-text-color) 5%, transparent); border-radius: 4px; }
 
-/* Header */
 .card-header { margin-bottom: 16px; }
 .header-top {
   display: flex; justify-content: space-between; align-items: center;
@@ -1637,7 +1421,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   justify-content: flex-end;
 }
 .overall-status, .dsm-link-inline {
-  /* Identical box model so the two pills read as a pair */
   font-size: .85em; font-weight: 600;
   height: 26px; padding: 0 12px; border-radius: 13px;
   display: inline-flex; align-items: center; gap: 5px;
@@ -1661,14 +1444,8 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   background: color-mix(in srgb, var(--error-color,#f44336) 15%, transparent);
   color: var(--error-color,#f44336);
 }
-.overall-status.status-critical:hover,
-.overall-status.status-warning:hover,
-.overall-status.status-info:hover {
-  filter: brightness(1.1);
-}
 .expand-hint { font-size: .7em; margin-left: 4px; opacity: .6; }
 
-/* Issues panel */
 .issues-panel {
   max-height: 0; overflow: hidden;
   transition: max-height .3s ease, padding .3s ease;
@@ -1702,7 +1479,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   cursor: default;
 }
 
-/* Header sub */
 .header-sub {
   margin-top: 4px; font-size: .8em; color: var(--secondary-text-color);
   display: flex; flex-wrap: wrap; gap: 12px; align-items: center;
@@ -1719,7 +1495,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .uptime-line { margin-top: 2px; }
 .uptime-txt { font-size: .8em; color: var(--secondary-text-color); font-weight: 400; }
 .dsm-link-inline {
-  /* Visual variant of .overall-status (sizing is shared above) */
   color: var(--primary-color,#03a9f4);
   background: color-mix(in srgb, var(--primary-color,#03a9f4) 15%, transparent);
   text-decoration: none;
@@ -1728,7 +1503,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   background: color-mix(in srgb, var(--primary-color,#03a9f4) 22%, transparent);
 }
 
-/* Gauges */
 .gauges-row {
   display: flex; justify-content: space-around; margin: 16px 0;
   flex-wrap: wrap; gap: 8px;
@@ -1746,19 +1520,16 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .trend-down { color: var(--success-color,#4caf50); }
 .trend-flat { color: var(--secondary-text-color); opacity: .6; }
 
-/* Load average row */
 .load-row {
   display: flex; justify-content: center; align-items: center; flex-wrap: wrap;
   gap: 10px; margin: 10px 0 8px; font-size: .8em;
   color: var(--secondary-text-color);
 }
 .load-label { font-weight: 600; }
-.load-item { display: inline-flex; align-items: baseline; gap: 3px; }
+.load-item { display: inline-flex; align-items: baseline; gap: 3px; color: var(--primary-text-color); font-weight: 600; }
 .load-key { font-size: .85em; opacity: .7; text-transform: uppercase; }
-.load-item { color: var(--primary-text-color); font-weight: 600; }
 .load-cores { opacity: .6; font-size: .85em; }
 
-/* Sections */
 .section {
   margin-top: 16px; padding-top: 12px;
   border-top: 1px solid var(--divider-color,#e0e0e0);
@@ -1768,7 +1539,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--primary-text-color);
 }
 
-/* Drives */
 .drives-grid {
   display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 8px;
 }
@@ -1801,7 +1571,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   margin-bottom: 3px;
 }
 
-/* Inline expand (drives + volumes) */
 .expand-toggle {
   grid-column: 2; justify-self: end; align-self: start;
   width: 22px; height: 22px; padding: 0;
@@ -1839,22 +1608,16 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   word-break: break-word; max-width: 65%;
 }
 
-/* Volumes */
 .volume-card {
   position: relative;
   padding: 10px; border-radius: 8px; border: 1px solid var(--divider-color,#e0e0e0);
   background: var(--card-background-color,#fff); margin-bottom: 8px;
 }
 .volume-card.open { border-color: var(--primary-color,#03a9f4); }
-.volume-card .expand-toggle {
-  position: absolute; top: 8px; right: 8px;
-  grid-column: auto; justify-self: auto;
-}
 .volume-body { cursor: pointer; }
 .volume-header {
   display: flex; justify-content: space-between; align-items: center;
   margin-bottom: 8px; gap: 8px; flex-wrap: wrap;
-  padding-right: 30px; /* leave room for expand toggle */
 }
 .volume-title { font-weight: 600; font-size: .85em; color: var(--primary-text-color); }
 .volume-badges { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -1864,7 +1627,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   color: var(--primary-color,#03a9f4);
 }
 .volume-status { font-size: .75em; color: var(--secondary-text-color); text-transform: capitalize; }
-/* Volume bar — plain status-coloured progress bar (LED-segment style was harder to read) */
 .volume-bar-container {
   height: 8px; background: var(--divider-color,#e0e0e0);
   border-radius: 4px; overflow: hidden;
@@ -1879,7 +1641,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   font-size: .7em; color: var(--secondary-text-color);
 }
 
-/* Memory — dotted leader between label and value so the eye can track the row across width */
 .info-grid {
   display: flex; flex-direction: column; gap: 2px;
   max-width: 460px;
@@ -1900,7 +1661,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   font-variant-numeric: tabular-nums;
 }
 
-/* Security */
 .security-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .security-item {
   display: flex; align-items: center; gap: 4px; padding: 6px 8px;
@@ -1920,22 +1680,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   background: color-mix(in srgb, var(--error-color,#f44336) 14%, transparent);
   border: 1px solid color-mix(in srgb, var(--error-color,#f44336) 40%, transparent);
 }
-.security-summary {
-  display: flex; align-items: center; gap: 10px; padding: 10px 12px;
-  border-radius: 8px; font-size: .85em; cursor: pointer;
-  background: color-mix(in srgb, var(--success-color,#4caf50) 12%, transparent);
-  color: var(--success-color,#4caf50); font-weight: 600;
-  transition: background .2s;
-}
-.security-summary:hover { background: color-mix(in srgb, var(--success-color,#4caf50) 20%, transparent); }
-.security-summary.all-missing {
-  background: color-mix(in srgb, var(--secondary-text-color, #888) 10%, transparent);
-  color: var(--secondary-text-color); cursor: default; font-weight: 500;
-}
-.security-summary .sec-check { font-size: 1.1em; }
-.security-summary .sec-msg { flex: 1; }
-.security-summary .sec-count { opacity: .7; font-weight: 400; margin-left: 2px; }
-.security-summary .sec-chevron { opacity: .7; font-size: .85em; }
 .security-passed-chip {
   display: inline-flex; align-items: center; gap: 6px; margin-top: 8px;
   padding: 4px 10px; border-radius: 12px; font-size: .75em; cursor: pointer;
@@ -1956,61 +1700,13 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 }
 .security-detail.show { display: block; }
 
-/* Footer */
-.card-footer {
-  display: flex; align-items: center; gap: 12px; margin-top: 16px; padding-top: 12px;
-  border-top: 1px solid var(--divider-color,#e0e0e0); flex-wrap: wrap;
-}
-.dsm-link {
-  display: inline-flex; align-items: center; gap: 4px; padding: 6px 16px;
-  border-radius: 8px; font-size: .85em; font-weight: 600;
-  color: var(--primary-color,#03a9f4);
-  background: color-mix(in srgb, var(--primary-color,#03a9f4) 12%, transparent);
-  text-decoration: none; transition: background .2s;
-}
-.dsm-link:hover {
-  background: color-mix(in srgb, var(--primary-color,#03a9f4) 22%, transparent);
-}
-.power-row { display: flex; align-items: center; gap: 8px; margin-left: auto; }
-.power-lock-btn {
-  width: 32px; height: 32px; border: 1px solid var(--divider-color,#e0e0e0);
-  border-radius: 6px; background: transparent; cursor: pointer;
-  font-size: 1em; display: flex; align-items: center; justify-content: center;
-  transition: background .2s, border-color .2s;
-}
-.power-lock-btn.unlocked {
-  background: color-mix(in srgb, var(--warning-color,#ff9800) 15%, transparent);
-  border-color: var(--warning-color,#ff9800);
-}
-.power-btn {
-  padding: 6px 14px; border: none; border-radius: 8px; font-size: .8em;
-  font-weight: 600; cursor: pointer; transition: opacity .2s;
-}
-.power-btn.locked { opacity: .3; cursor: not-allowed; }
-.power-btn:hover:not(.locked) { opacity: .8; }
-.power-btn.reboot {
-  background: color-mix(in srgb, var(--warning-color,#ff9800) 15%, transparent);
-  color: var(--warning-color,#ff9800);
-}
-.power-btn.shutdown {
-  background: color-mix(in srgb, var(--error-color,#f44336) 15%, transparent);
-  color: var(--error-color,#f44336);
-}
-
-/* Front Panel — full card width; overlay buttons scale with the chassis via
-   container queries so they stay proportional whether the card is 320 px or 1400 px. */
 .front-panel-section {
   margin: 0 auto;
 }
 .front-panel-frame {
   position: relative;
-  line-height: 0;          /* drop the inline-svg baseline gap */
-  container-type: inline-size;  /* let .fp-power-* size off this container's width */
-}
-.front-panel-wrap {
-  width: 100%; overflow-x: auto;
-  border-radius: 8px;
-  padding-bottom: 4px;
+  line-height: 0;
+  container-type: inline-size;
 }
 .front-panel-svg {
   display: block;
@@ -2023,19 +1719,14 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
 .fp-slot { transition: opacity .15s; }
 .fp-slot:hover { opacity: .8; cursor: pointer; }
 
-/* Power overlay — sits over the chassis header band at top-center.
-   Top offset and button height are container-query units so the overlay
-   matches the header-band height regardless of how wide the chassis renders. */
 .front-panel-power-overlay {
   position: absolute;
-  /* top is set inline (header-band centre in % of SVG height); translateY -50% centres on it */
   left: 50%;
   transform: translate(-50%, -50%);
   z-index: 2;
   display: flex; align-items: center; gap: clamp(3px, 0.8cqi, 8px);
 }
 .fp-power-lock, .fp-power-btn {
-  /* Grid + place-items absolutely centres the SVG icon regardless of glyph metrics */
   display: grid;
   place-items: center;
   box-sizing: border-box;
@@ -2074,7 +1765,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   background: color-mix(in srgb, var(--error-color,#f44336) 18%, #161616);
 }
 
-/* Responsive — narrow */
 @media (max-width: 420px) {
   :host { --card-padding: 12px; }
   .gauges-row { gap: 4px; }
@@ -2083,8 +1773,6 @@ ha-card.compact .info-item { padding: 2px 6px; font-size: .75em; }
   .drives-grid { grid-template-columns: 1fr 1fr; }
   .security-grid { grid-template-columns: 1fr 1fr; }
   .info-grid { grid-template-columns: 1fr; }
-  .card-footer { flex-direction: column; align-items: stretch; }
-  .power-row { margin-left: 0; justify-content: flex-end; }
   .volume-details { flex-direction: column; gap: 2px; }
   .header-top { flex-direction: column; align-items: flex-start; }
 }
@@ -2121,14 +1809,12 @@ class SynologyNasCardEditor extends HTMLElement {
       `<option value="${p}" ${p === current ? "selected" : ""}>${prettyName(p)} (${p})</option>`
     ).join("");
 
-    // Auto-detected summary (drives / M.2 / volumes / model / cores)
     let detectedHtml = "";
     if (current && this._hass) {
       const d = detectDriveSlots(this._hass, current);
       const m = detectM2Slots(this._hass, current);
       const v = detectVolumes(this._hass, current);
       const autoCores = detectCoresFromModel(this._hass, current);
-      // NAS model (from device registry) for display
       const marker = `sensor.${current}_cpu_utilization_total`;
       const entReg = this._hass.entities?.[marker];
       const device = entReg?.device_id ? this._hass.devices?.[entReg.device_id] : null;
@@ -2211,7 +1897,7 @@ class SynologyNasCardEditor extends HTMLElement {
       <label>CPU cores</label>
       <input type="number" id="cpu_cores" min="1" max="64" step="1"
         value="${this._config.cpu_cores || 4}" placeholder="4">
-      <small>Number of CPU cores (used as max for the load average gauge — DS1821+ = 4, DS1621+ = 4, DS920+ = 4, DS224+ = 4)</small>
+      <small>Number of CPU cores (used as max for the load average gauge)</small>
 
       <div class="check">
         <input type="checkbox" id="show_drive_panel" ${this._config.show_drive_panel !== false ? "checked" : ""}>
@@ -2288,7 +1974,6 @@ class SynologyNasCardEditor extends HTMLElement {
       </details>
     </div>`;
 
-    /* ── Bindings ── */
     const sel         = this.shadowRoot.getElementById("entity_prefix");
     const customWrap  = this.shadowRoot.getElementById("custom-wrap");
     const customInput = this.shadowRoot.getElementById("custom_prefix");
@@ -2339,7 +2024,6 @@ class SynologyNasCardEditor extends HTMLElement {
       });
     });
 
-    // Threshold inputs
     const thrMap = {
       thr_ram_yellow:      "ram_yellow",
       thr_ram_red:         "ram_red",
@@ -2386,5 +2070,5 @@ window.customCards.push({
   name: "Synology NAS Monitoring Card",
   description: "Auto-discovering card for Synology NAS monitoring via the Synology DSM integration",
   preview: true,
-  documentationURL: "https://github.com/msnapka/synology-nas-monitoring-card",
+  documentationURL: "https://github.com/janreimen/HA-Synology-Monitoring-card",
 });
